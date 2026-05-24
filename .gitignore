@@ -1,0 +1,19 @@
+# Model weights — download from HuggingFace, do not commit
+models/
+mmproj/
+
+# llama.cpp binaries — download from GitHub Releases
+bin/
+
+# Download staging area
+dl/
+
+# Runtime logs
+logs/
+
+# API key (sensitive — generated on first LAN-mode launch)
+.apikey
+
+# Windows artifacts
+Thumbs.db
+desktop.ini
