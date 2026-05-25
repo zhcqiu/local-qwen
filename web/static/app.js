@@ -725,19 +725,19 @@ async function runHealth() {
 }
 
 function renderMd(raw) {
-  let s = raw.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const blocks = [];
-  s = s.replace(/```(?:\w*\n?)([\s\S]*?)```/g, (_, c) => {
-    blocks.push(`<pre><code>${c.replace(/\n$/, '')}</code></pre>`);
-    return `\x00B${blocks.length - 1}\x00`;
+  return marked.parse(raw || '');
+}
+
+function injectCodeCopyButtons(el) {
+  el.querySelectorAll('pre').forEach(pre => {
+    if (pre.querySelector('.copy-code-btn')) return;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'copy-code-btn';
+    btn.textContent = t('btn_copy');
+    btn.addEventListener('click', () => copyText(pre.querySelector('code')?.textContent || pre.textContent));
+    pre.appendChild(btn);
   });
-  s = s.replace(/`([^`\n]+)`/g, '<code>$1</code>');
-  s = s.replace(/\*\*\*([^*\n]+)\*\*\*/g, '<strong><em>$1</em></strong>');
-  s = s.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
-  s = s.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
-  s = s.replace(/\n/g, '<br>');
-  s = s.replace(/\x00B(\d+)\x00/g, (_, i) => blocks[+i]);
-  return s;
 }
 
 function addMsg(role, opts = {}) {
@@ -1008,6 +1008,7 @@ async function sendMessage() {
           full += delta.content;
           app.activeOutputChars = full.length;
           bubble.innerHTML = renderMd(full);
+          injectCodeCopyButtons(bubble);
           scrollBottom();
         }
       }
@@ -1016,6 +1017,7 @@ async function sendMessage() {
     bubble.classList.remove('streaming');
     if (full) {
       bubble.innerHTML = renderMd(full);
+      injectCodeCopyButtons(bubble);
       chatHistory.push({ role: 'assistant', content: full, reasoning_content: think || undefined });
       savedAssistant = true;
       updateActiveConversation();
@@ -1032,6 +1034,7 @@ async function sendMessage() {
       showNotice(t('stopped'), 'ok');
       if (full) {
         bubble.innerHTML = renderMd(full);
+        injectCodeCopyButtons(bubble);
         chatHistory.push({ role: 'assistant', content: full, reasoning_content: think || undefined });
         savedAssistant = true;
         updateActiveConversation();
@@ -1252,7 +1255,8 @@ function renderHistory() {
     } else if (m.role === 'system') {
       addMsg('system', { text: m.content });
     } else {
-      addMsg('assistant', { html: renderMd(m.content), raw: m.content, reasoning: m.reasoning_content, index });
+      const { bubble } = addMsg('assistant', { html: renderMd(m.content), raw: m.content, reasoning: m.reasoning_content, index });
+      injectCodeCopyButtons(bubble);
     }
   });
   // Continuation branches (continue-assistant) attach after the last message
@@ -1277,6 +1281,7 @@ function clearConversation(id = app.activeConversationId) {
 }
 
 async function init() {
+  marked.setOptions({ gfm: true, breaks: true });
   applyTheme();
   applyI18n();
   loadConversations();
