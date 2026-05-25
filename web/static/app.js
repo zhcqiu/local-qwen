@@ -1513,7 +1513,7 @@ async function init() {
     if (document.hidden) {
       clearInterval(pollTimer);
       pollTimer = null;
-    } else {
+    } else if (!pollTimer) {
       pollState();
       pollTimer = setInterval(pollState, 2000);
     }
