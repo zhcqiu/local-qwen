@@ -1508,7 +1508,16 @@ async function init() {
   await pollState();
   await Promise.all([loadModels(), loadProfiles()]);
   render();
-  setInterval(pollState, 2000);
+  let pollTimer = setInterval(pollState, 2000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    } else {
+      pollState();
+      pollTimer = setInterval(pollState, 2000);
+    }
+  });
 }
 
 document.addEventListener('DOMContentLoaded', init);
