@@ -17,6 +17,7 @@ const app = {
   editBranch: null,
   convSearch: '',
   openConversationMenu: null,
+  compressConvId: null,
   detailsOpen: localStorage.getItem('qwen-details-open') !== 'false',
 };
 
@@ -70,6 +71,49 @@ function titleFromMessages(messages) {
   return title.length > 42 ? `${title.slice(0, 42)}...` : title;
 }
 
+function getBranchGroup(forkIndex) {
+  const cur = conversations.find(c => c.id === app.activeConversationId);
+  if (!cur) return null;
+
+  let rootId;
+  if (cur.fork_index === forkIndex) {
+    rootId = cur.parent_id;
+  } else {
+    if (!conversations.some(c => c.parent_id === cur.id && c.fork_index === forkIndex)) return null;
+    rootId = cur.id;
+  }
+  if (!rootId) return null;
+
+  const rootConv = conversations.find(c => c.id === rootId);
+  if (!rootConv) return null;
+
+  const siblings = conversations
+    .filter(c => c.parent_id === rootId && c.fork_index === forkIndex)
+    .sort((a, b) => a.created_at - b.created_at);
+
+  return { group: [rootConv, ...siblings], current: app.activeConversationId };
+}
+
+function appendBranchNav(container, forkIndex) {
+  const info = getBranchGroup(forkIndex);
+  if (!info || info.group.length <= 1) return;
+
+  const nav = document.createElement('div');
+  nav.className = 'branch-nav';
+
+  info.group.forEach((conv, i) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = String(i + 1);
+    btn.className = `branch-btn${conv.id === info.current ? ' active' : ''}`;
+    btn.title = conv.title || t('untitled_chat');
+    btn.addEventListener('click', () => setActiveConversation(conv.id));
+    nav.appendChild(btn);
+  });
+
+  container.appendChild(nav);
+}
+
 function getActiveConversation() {
   let conv = conversations.find(c => c.id === app.activeConversationId);
   if (!conv) {
@@ -78,12 +122,13 @@ function getActiveConversation() {
   return conv;
 }
 
-function createConversation(messages = [], title = null, parentId = null) {
+function createConversation(messages = [], title = null, parentId = null, forkIndex = null) {
   const conv = {
     id: uid(),
     title: title || titleFromMessages(messages),
     messages: cloneMessages(messages),
     parent_id: parentId,
+    fork_index: forkIndex,
     created_at: Date.now(),
     updated_at: Date.now(),
   };
@@ -137,6 +182,22 @@ function loadConversations() {
   } else if (!conversations.some(c => c.id === app.activeConversationId)) {
     app.activeConversationId = conversations[0].id;
   }
+
+  // Backfill fork_index for existing branches that were created before this feature
+  conversations.forEach(c => {
+    if (c.parent_id && (c.fork_index === null || c.fork_index === undefined)) {
+      const parent = conversations.find(p => p.id === c.parent_id);
+      if (parent) {
+        const cm = c.messages, pm = parent.messages;
+        let fi = Math.min(cm.length, pm.length);
+        for (let i = 0; i < fi; i++) {
+          if (cm[i].content !== pm[i].content || cm[i].role !== pm[i].role) { fi = i; break; }
+        }
+        c.fork_index = fi;
+      }
+    }
+  });
+
   chatHistory = getActiveConversation().messages;
   saveConversations();
 }
@@ -194,10 +255,21 @@ function renameConversation(id) {
 function renderSidebar() {
   const list = $('conv-list');
   if (!list) return;
+
+  // Rescue compress panel from inside the list before wiping it.
+  // The panel's permanent home is .compress-wrap (display:none in header).
+  const panel = $('compress-panel');
+  const panelHome = document.querySelector('.compress-wrap');
+  if (panel && panelHome && !panel.closest('.compress-wrap')) {
+    panel.hidden = true;
+    panelHome.appendChild(panel);
+  }
+
   list.innerHTML = '';
   const q = app.convSearch.trim().toLowerCase();
   conversations
     .slice()
+    .filter(conv => !conv.parent_id)
     .filter(conv => {
       if (!q) return true;
       const hay = `${conv.title || ''}\n${(conv.messages || []).map(m => m.content).join('\n')}`.toLowerCase();
@@ -272,11 +344,24 @@ function renderSidebar() {
       const meta = document.createElement('span');
       meta.className = 'conv-meta';
       const model = conv.model ? ` - ${conv.model}` : '';
-      meta.textContent = `${Math.ceil((conv.messages || []).length / 2)} turns${model}${conv.parent_id ? ` - ${t('branch_prefix')}` : ''}`;
+      const branchCount = conversations.filter(c => c.parent_id === conv.id).length;
+      const branchSuffix = branchCount > 0 ? ` · ${branchCount} ${t('branch_prefix')}` : '';
+      meta.textContent = `${Math.ceil((conv.messages || []).length / 2)} turns${model}${branchSuffix}`;
 
       row.append(title, more, meta, menu);
       list.appendChild(row);
     });
+
+  // Re-place compress panel into the target conv-item if one is open.
+  if (app.compressConvId && panel) {
+    const targetRow = list.querySelector(`[data-conv-id="${CSS.escape(app.compressConvId)}"]`);
+    if (targetRow) {
+      targetRow.appendChild(panel);
+      panel.hidden = false;
+    } else {
+      app.compressConvId = null;
+    }
+  }
 }
 
 function setLang(l) {
@@ -662,7 +747,7 @@ function addMsg(role, opts = {}) {
     sysEl.textContent = `${t('role_system')}: ${opts.text || ''}`;
     $('msgs').appendChild(sysEl);
     scrollBottom();
-    return { bubble: sysEl, thinkEl: null };
+    return { bubble: sysEl, thinkEl: null, wrap: sysEl };
   }
 
   const wrap = document.createElement('div');
@@ -737,7 +822,7 @@ function addMsg(role, opts = {}) {
   wrap.append(bubble);
   $('msgs').appendChild(wrap);
   scrollBottom();
-  return { bubble, thinkEl };
+  return { bubble, thinkEl, wrap };
 }
 
 async function copyText(text) {
@@ -807,7 +892,7 @@ function retryAssistant(index) {
 function continueAssistant(index) {
   if (app.isStreaming || chatHistory[index]?.role !== 'assistant') return;
   const base = cloneMessages(chatHistory.slice(0, index + 1));
-  const conv = createConversation(base, `${t('branch_prefix')}: ${titleFromMessages(base)}`, app.activeConversationId);
+  const conv = createConversation(base, `${t('branch_prefix')}: ${titleFromMessages(base)}`, app.activeConversationId, index + 1);
   app.activeConversationId = conv.id;
   chatHistory = conv.messages;
   app.editBranch = null;
@@ -835,7 +920,7 @@ async function sendMessage() {
   if (branch && branch.sourceId === app.activeConversationId && chatHistory[branch.index]?.role === 'user') {
     const base = cloneMessages(chatHistory.slice(0, branch.index));
     const title = `${t('branch_prefix')}: ${content.slice(0, 38) || t('untitled_chat')}`;
-    const conv = createConversation(base, title, branch.sourceId);
+    const conv = createConversation(base, title, branch.sourceId, branch.index);
     app.activeConversationId = conv.id;
     chatHistory = conv.messages;
     app.editBranch = null;
@@ -922,7 +1007,7 @@ async function sendMessage() {
         if (delta.content) {
           full += delta.content;
           app.activeOutputChars = full.length;
-          bubble.textContent = full;
+          bubble.innerHTML = renderMd(full);
           scrollBottom();
         }
       }
@@ -976,21 +1061,25 @@ function toggleCompressPanel() {
 }
 
 function openCompressForConversation(id) {
-  setActiveConversation(id);
+  app.compressConvId = id;
   app.openConversationMenu = null;
-  const row = document.querySelector(`.conv-item[data-conv-id="${CSS.escape(id)}"]`);
-  const panel = $('compress-panel');
-  if (row) {
-    row.appendChild(panel);
-    row.querySelector('.conv-menu')?.classList.remove('open');
-    row.querySelector('.conv-more')?.classList.remove('open');
-  } else {
-    $('sidebar').appendChild(panel);
-  }
-  panel.hidden = false;
+  setActiveConversation(id);  // triggers renderSidebar which places the panel
+}
+
+async function clearServerContext() {
+  if (!controlToken) return;
+  try {
+    await fetch('/api/clear-context', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Control-Token': controlToken },
+      body: '{}',
+    });
+  } catch { /* best-effort — cosmetic only */ }
+  await pollState();
 }
 
 function stripThinking() {
+  app.compressConvId = null;
   $('compress-panel').hidden = true;
   const re = /<think>[\s\S]*?<\/think>\s*/gi;
   let n = 0;
@@ -1006,9 +1095,11 @@ function stripThinking() {
   document.querySelectorAll('.thinking-block').forEach(el => el.remove());
   updateActiveConversation();
   showNotice(n > 0 ? t('cp_strip_done').replace('{n}', n) : t('cp_strip_none'), n > 0 ? 'ok' : '');
+  clearServerContext();
 }
 
 function trimHistory() {
+  app.compressConvId = null;
   $('compress-panel').hidden = true;
   const turns = Math.max(1, parseInt($('trim-n').value, 10) || 10);
   const keepN = turns * 2;
@@ -1021,6 +1112,7 @@ function trimHistory() {
   updateActiveConversation();
   renderHistory();
   showNotice(t('cp_trim_done').replace('{n}', removed), 'ok');
+  clearServerContext();
 }
 
 function exportChat() {
@@ -1154,10 +1246,18 @@ function normalizeMessages(data) {
 function renderHistory() {
   $('msgs').innerHTML = '';
   chatHistory.forEach((m, index) => {
-    if (m.role === 'user') addMsg('user', { text: m.content, raw: m.content, index });
-    else if (m.role === 'system') addMsg('system', { text: m.content });
-    else addMsg('assistant', { html: renderMd(m.content), raw: m.content, reasoning: m.reasoning_content, index });
+    if (m.role === 'user') {
+      const { wrap } = addMsg('user', { text: m.content, raw: m.content, index });
+      appendBranchNav(wrap, index);
+    } else if (m.role === 'system') {
+      addMsg('system', { text: m.content });
+    } else {
+      addMsg('assistant', { html: renderMd(m.content), raw: m.content, reasoning: m.reasoning_content, index });
+    }
   });
+  // Continuation branches (continue-assistant) attach after the last message
+  const lastChild = $('msgs').lastElementChild;
+  if (lastChild) appendBranchNav(lastChild, chatHistory.length);
   scrollBottom();
 }
 
@@ -1204,7 +1304,10 @@ async function init() {
 
   document.addEventListener('click', e => {
     const panel = $('compress-panel');
-    if (!panel.hidden && !e.target.closest('.compress-wrap') && !e.target.closest('#compress-panel')) panel.hidden = true;
+    if (panel && !panel.hidden && !e.target.closest('#compress-panel')) {
+      panel.hidden = true;
+      app.compressConvId = null;
+    }
     const sideMenu = $('side-menu');
     if (sideMenu && !sideMenu.hidden && !e.target.closest('.side-menu-wrap')) sideMenu.hidden = true;
     if (!e.target.closest('.conv-item')) {

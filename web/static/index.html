@@ -735,6 +735,33 @@
     ::-webkit-scrollbar { width: 5px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 3px; }
+
+    /* ── Branch navigation ──────────────────────────────────── */
+    .branch-nav {
+      display: flex;
+      gap: 3px;
+      align-items: center;
+      margin-top: 4px;
+      flex-wrap: wrap;
+    }
+    .branch-btn {
+      min-width: 22px;
+      height: 18px;
+      padding: 0 6px;
+      font-size: 10px;
+      color: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      background: var(--bg);
+      line-height: 18px;
+      cursor: pointer;
+    }
+    .branch-btn.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+    .branch-btn:hover:not(.active):not(:disabled) { background: var(--btn-hover-bg); }
   </style>
 </head>
 <body>
