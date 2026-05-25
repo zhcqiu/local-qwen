@@ -81,6 +81,7 @@
     }
 
     .logo { font-weight: 700; font-size: 15px; color: var(--accent); flex-shrink: 0; }
+    #hdr-model-status { font-size: 12px; color: var(--muted); flex-shrink: 0; }
 
     .h-ctrl {
       flex: 1;
@@ -899,11 +900,8 @@
 <body>
   <header id="hdr">
     <span class="logo">qwen-ui</span>
+    <span id="hdr-model-status"></span>
     <div class="h-ctrl">
-      <select id="sel-model" title="Model"></select>
-      <select id="sel-profile" title="Profile"></select>
-      <button id="btn-switch" class="btn-accent" data-i18n="btn_switch">Switch</button>
-      <div class="vsep"></div>
       <span class="ctrl-lbl" data-i18n="lbl_thinking">Thinking</span>
       <button id="btn-thinking" aria-pressed="true">On</button>
     </div>

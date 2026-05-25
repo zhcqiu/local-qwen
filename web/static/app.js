@@ -19,6 +19,7 @@ const app = {
   openConversationMenu: null,
   compressConvId: null,
   pendingImage: null,
+  gearOpen: false,
   detailsOpen: localStorage.getItem('qwen-details-open') !== 'false',
 };
 
@@ -157,6 +158,33 @@ function saveConversations() {
   localStorage.setItem(ACTIVE_CONV_KEY, app.activeConversationId);
 }
 
+function saveSystemPrompt() {
+  const conv = conversations.find(c => c.id === app.activeConversationId);
+  if (!conv) return;
+  conv.system_prompt = ($('sys-prompt-inp')?.value || '').trim() || null;
+  conv.updated_at = Date.now();
+  saveConversations();
+}
+
+function toggleGearPanel() {
+  app.gearOpen = !app.gearOpen;
+  const panel = $('gear-panel');
+  if (!panel) return;
+  panel.hidden = !app.gearOpen;
+  if (app.gearOpen) {
+    const conv = conversations.find(c => c.id === app.activeConversationId);
+    const inp = $('sys-prompt-inp');
+    if (inp) inp.value = conv?.system_prompt || '';
+  }
+}
+
+async function handleGearSwitch() {
+  saveSystemPrompt();
+  const panel = $('gear-panel');
+  if (panel) { panel.hidden = true; app.gearOpen = false; }
+  await handleSwitch();
+}
+
 function loadConversations() {
   let loaded = [];
   try {
@@ -219,6 +247,11 @@ function setActiveConversation(id) {
   renderHistory();
   renderSidebar();
   renderControls();
+  const gearInp = $('sys-prompt-inp');
+  if (gearInp) {
+    const newConv = conversations.find(c => c.id === id);
+    gearInp.value = newConv?.system_prompt || '';
+  }
 }
 
 function newConversation() {
@@ -391,6 +424,8 @@ function applyI18n() {
     if (el) el.title = t(key);
   });
   $('inp').placeholder = t('inp_placeholder');
+  const sysPInp = $('sys-prompt-inp');
+  if (sysPInp) sysPInp.placeholder = t('sys_prompt_placeholder');
   document.querySelectorAll('.lang-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.lang === app.lang)
   );
@@ -427,7 +462,8 @@ function toggleThinking() {
 async function loadModels() {
   const r = await fetch('/api/models');
   const data = await r.json();
-  const sel = $('sel-model');
+  const sel = $('gear-sel-model');
+  if (!sel) return;
   sel.innerHTML = '';
   (data.models || []).forEach(m => {
     const o = new Option(`${m.id}  (${m.size_gb} GB)`, m.id);
@@ -440,7 +476,8 @@ async function loadModels() {
 async function loadProfiles() {
   const r = await fetch('/api/profiles');
   const data = await r.json();
-  const sel = $('sel-profile');
+  const sel = $('gear-sel-profile');
+  if (!sel) return;
   sel.innerHTML = '';
   (data.profiles || []).forEach(p => {
     const o = new Option(`${p.id}  -  ctx ${p.ctx.toLocaleString()}`, p.id);
@@ -459,8 +496,9 @@ async function pollState() {
     const wasSwitching = app.serverState?.server === 'switching';
     app.serverState = s;
     if (wasSwitching && s.server === 'running' && s.current) {
-      if (s.current.model_id) $('sel-model').value = s.current.model_id;
-      if (s.current.profile) $('sel-profile').value = s.current.profile;
+      const gm = $('gear-sel-model'), gp = $('gear-sel-profile');
+      if (gm && s.current.model_id) gm.value = s.current.model_id;
+      if (gp && s.current.profile) gp.value = s.current.profile;
     }
   } catch (e) {
     app.serverState = {
@@ -642,10 +680,18 @@ function renderControls() {
   sendBtn.disabled = app.isStreaming ? false : !!reason;
   sendBtn.title = app.isStreaming ? t('btn_stop') : reason;
 
-  $('btn-switch').disabled = sw || app.isStreaming;
-  $('sel-model').disabled = sw || app.isStreaming;
-  $('sel-profile').disabled = sw || app.isStreaming;
+  const gearSwitch = $('btn-gear-switch');
+  const gearModel = $('gear-sel-model');
+  const gearProfile = $('gear-sel-profile');
+  if (gearSwitch) gearSwitch.disabled = sw || app.isStreaming;
+  if (gearModel) gearModel.disabled = sw || app.isStreaming;
+  if (gearProfile) gearProfile.disabled = sw || app.isStreaming;
   $('btn-health').disabled = !controlToken || app.healthRunning || app.isStreaming;
+  const statusEl = $('hdr-model-status');
+  if (statusEl) {
+    const cur = app.serverState?.current;
+    statusEl.textContent = cur ? `${cur.alias || cur.model_id} · ${cur.profile}` : '';
+  }
   const detailsBtn = $('btn-details');
   if (detailsBtn) detailsBtn.classList.toggle('active', app.detailsOpen);
   const banner = $('edit-banner');
@@ -689,8 +735,8 @@ function showNotice(msg, cls, ms = 3000) {
 }
 
 async function handleSwitch() {
-  const model = $('sel-model').value;
-  const profile = $('sel-profile').value;
+  const model = $('gear-sel-model')?.value;
+  const profile = $('gear-sel-profile')?.value;
   if (!model || !profile) return;
   try {
     const r = await fetch('/api/switch', {
@@ -1001,7 +1047,11 @@ async function sendMessage() {
   try {
     const body = {
       model: app.serverState?.current?.alias || app.serverState?.served_aliases?.[0] || 'default',
-      messages: chatHistory.map(m => ({ role: m.role, content: m.content })),
+      messages: (() => {
+        const msgs = chatHistory.map(m => ({ role: m.role, content: m.content }));
+        const conv = conversations.find(c => c.id === app.activeConversationId);
+        return conv?.system_prompt ? [{ role: 'system', content: conv.system_prompt }, ...msgs] : msgs;
+      })(),
       stream: true,
       max_tokens: 4096,
       timings_per_token: true,
@@ -1345,7 +1395,6 @@ async function init() {
   $('btn-attach').addEventListener('click', () => $('img-attach').click());
   $('img-attach').addEventListener('change', handleImageAttach);
   $('btn-remove-img').addEventListener('click', clearPendingImage);
-  $('btn-switch').addEventListener('click', handleSwitch);
   $('btn-thinking').addEventListener('click', toggleThinking);
   $('btn-theme').addEventListener('click', toggleTheme);
   $('btn-health').addEventListener('click', runHealth);
@@ -1371,6 +1420,12 @@ async function init() {
     }
     const sideMenu = $('side-menu');
     if (sideMenu && !sideMenu.hidden && !e.target.closest('.side-menu-wrap')) sideMenu.hidden = true;
+    if (app.gearOpen && !e.target.closest('#sidebar-footer')) {
+      saveSystemPrompt();
+      app.gearOpen = false;
+      const gp = $('gear-panel');
+      if (gp) gp.hidden = true;
+    }
     if (!e.target.closest('.conv-item')) {
       if (app.openConversationMenu) {
         app.openConversationMenu = null;
@@ -1389,6 +1444,9 @@ async function init() {
     renderSidebar();
   });
   $('btn-cancel-edit').addEventListener('click', cancelEdit);
+  $('btn-gear').addEventListener('click', e => { e.stopPropagation(); toggleGearPanel(); });
+  $('sys-prompt-inp').addEventListener('blur', saveSystemPrompt);
+  $('btn-gear-switch').addEventListener('click', handleGearSwitch);
 
   await pollState();
   await Promise.all([loadModels(), loadProfiles()]);
