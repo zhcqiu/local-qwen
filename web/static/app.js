@@ -66,8 +66,11 @@ function cloneMessages(messages) {
 }
 
 function titleFromMessages(messages) {
-  const first = messages.find(m => m.role === 'user' && m.content.trim());
-  const title = first ? first.content.trim().replace(/\s+/g, ' ') : t('untitled_chat');
+  const first = messages.find(m => m.role === 'user' && m.content);
+  const rawText = first
+    ? (Array.isArray(first.content) ? (first.content.find(p => p.type === 'text')?.text || '') : first.content)
+    : '';
+  const title = rawText.trim().replace(/\s+/g, ' ') || t('untitled_chat');
   return title.length > 42 ? `${title.slice(0, 42)}...` : title;
 }
 
