@@ -1455,7 +1455,7 @@ function normalizeMessages(data) {
     .filter(m => m && typeof m.role === 'string' && known.has(m.role))
     .map(m => ({
       role: m.role,
-      content: typeof m.content === 'string' ? m.content : String(m.content ?? ''),
+      content: Array.isArray(m.content) ? m.content : (typeof m.content === 'string' ? m.content : String(m.content ?? '')),
       reasoning_content: typeof m.reasoning_content === 'string' ? m.reasoning_content
         : typeof m.reasoningContent === 'string' ? m.reasoningContent : undefined,
       timings: m.timings || undefined,
