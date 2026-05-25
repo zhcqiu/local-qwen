@@ -159,9 +159,10 @@
     .compress-wrap { position: relative; }
     #compress-panel {
       position: absolute;
-      right: 0;
+      left: 0;
       top: calc(100% + 8px);
-      min-width: 200px;
+      min-width: 230px;
+      max-width: min(320px, calc(100vw - 28px));
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius);
@@ -233,7 +234,302 @@
     #notice.error   { background: var(--notice-err-bg); color: var(--red);   border-bottom: 1px solid var(--notice-err-border); }
     #notice.ok      { background: var(--notice-ok-bg);  color: var(--green); border-bottom: 1px solid var(--notice-ok-border); }
 
+    /* ── Runtime status ─────────────────────────────────────── */
+    #runtime {
+      flex-shrink: 0;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      padding: 0 14px;
+    }
+    #runtime summary {
+      min-height: 32px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+      color: var(--muted);
+      font-size: 12px;
+      list-style: none;
+    }
+    #runtime summary::-webkit-details-marker { display: none; }
+    #runtime summary::before {
+      content: '\25B6';
+      font-size: 9px;
+      transition: transform .15s;
+    }
+    #runtime[open] summary::before { transform: rotate(90deg); }
+    #m-compact {
+      color: var(--text);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    #runtime-grid {
+      display: grid;
+      grid-template-columns: repeat(9, minmax(90px, 1fr));
+      gap: 8px;
+      align-items: stretch;
+      padding: 0 0 8px 0;
+    }
+    .metric {
+      min-width: 0;
+      border-left: 1px solid var(--border);
+      padding-left: 8px;
+    }
+    .metric:first-child { border-left: none; padding-left: 0; }
+    .metric-k {
+      display: block;
+      color: var(--muted);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      white-space: nowrap;
+    }
+    .metric-v {
+      display: block;
+      color: var(--text);
+      font-size: 12px;
+      line-height: 1.35;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .metric-v.ok { color: var(--green); }
+    .metric-v.warn { color: var(--amber); }
+    .metric-v.err { color: var(--red); }
+    .bar {
+      height: 4px;
+      margin-top: 5px;
+      border-radius: 999px;
+      overflow: hidden;
+      background: var(--border);
+    }
+    .bar > span {
+      display: block;
+      width: 0%;
+      height: 100%;
+      background: var(--accent);
+      transition: width .2s;
+    }
+
     /* ── Messages ────────────────────────────────────────────── */
+    #workbench {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      overflow: hidden;
+    }
+
+    #sidebar {
+      width: 230px;
+      flex-shrink: 0;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .side-hdr {
+      flex-shrink: 0;
+      padding: 10px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .side-title {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+
+    .icon-btn {
+      width: 30px;
+      height: 28px;
+      padding: 0;
+      overflow: hidden;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0;
+      line-height: 1;
+    }
+    .icon-btn::before {
+      content: attr(data-icon);
+      font-size: 16px;
+      line-height: 1;
+    }
+    .side-menu-wrap { position: relative; }
+    .side-menu-wrap {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    #side-menu {
+      position: absolute;
+      right: 0;
+      top: calc(100% + 6px);
+      min-width: 120px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: 0 4px 16px rgba(0,0,0,.22);
+      padding: 5px;
+      z-index: 220;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    #side-menu[hidden] { display: none; }
+    .side-search {
+      flex-shrink: 0;
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    #conv-search {
+      width: 100%;
+      padding: 6px 8px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      font: inherit;
+      font-size: 12px;
+    }
+
+    #conv-list {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .conv-item {
+      position: relative;
+      border: 1px solid transparent;
+      border-radius: var(--radius);
+      background: transparent;
+      color: var(--text);
+      cursor: pointer;
+      padding: 7px 8px;
+      text-align: left;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 4px;
+      align-items: center;
+    }
+    .conv-item:hover { background: var(--btn-hover-bg); }
+    .conv-item.active { background: var(--bg); border-color: var(--border); }
+    .conv-title {
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      font-size: 12px;
+    }
+    .conv-meta {
+      grid-column: 1 / -1;
+      color: var(--muted);
+      font-size: 10px;
+    }
+    .conv-del {
+      padding: 2px 5px;
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .conv-more {
+      width: 24px;
+      height: 22px;
+      padding: 0;
+      color: var(--muted);
+      opacity: 0;
+    }
+    .conv-item:hover .conv-more,
+    .conv-item:focus-within .conv-more,
+    .conv-more.open { opacity: 1; }
+    .conv-menu {
+      grid-column: 1 / -1;
+      display: none;
+      gap: 4px;
+      padding-top: 2px;
+    }
+    .conv-menu.open { display: flex; }
+    .conv-menu button {
+      padding: 2px 6px;
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    #chat-pane {
+      flex: 1;
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #details-pane {
+      width: 280px;
+      flex-shrink: 0;
+      background: var(--surface);
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    #details-pane.collapsed { display: none; }
+    .details-hdr {
+      flex-shrink: 0;
+      min-height: 42px;
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .details-title {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+    #details-body {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .detail-section {
+      border-top: 1px solid var(--border);
+      padding-top: 8px;
+    }
+    .detail-section:first-child { border-top: none; padding-top: 0; }
+    .detail-k {
+      display: block;
+      color: var(--muted);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      margin-bottom: 4px;
+    }
+    .detail-v {
+      color: var(--text);
+      font-size: 12px;
+      line-height: 1.45;
+      word-break: break-word;
+    }
+
     #msgs {
       flex: 1;
       overflow-y: auto;
@@ -258,7 +554,31 @@
       text-align: center;
     }
 
+    .msg-head {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .msg.user .msg-head { justify-content: flex-end; }
     .msg-label { font-size: 11px; color: var(--muted); }
+    .msg-edit {
+      padding: 1px 5px;
+      font-size: 10px;
+      color: var(--muted);
+      opacity: 0;
+    }
+    .msg-tools {
+      display: flex;
+      gap: 4px;
+      opacity: 0;
+    }
+    .msg-tools button {
+      padding: 1px 5px;
+      font-size: 10px;
+      color: var(--muted);
+    }
+    .msg:hover .msg-edit { opacity: 1; }
+    .msg:hover .msg-tools { opacity: 1; }
 
     .bubble {
       padding: 9px 13px;
@@ -316,6 +636,20 @@
     }
 
     /* ── Footer ──────────────────────────────────────────────── */
+    #edit-banner {
+      flex-shrink: 0;
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 6px 14px;
+      background: var(--notice-ok-bg);
+      border-top: 1px solid var(--notice-ok-border);
+      color: var(--green);
+      font-size: 12px;
+    }
+    #edit-banner.visible { display: flex; }
+
     #ftr {
       flex-shrink: 0;
       background: var(--surface);
@@ -344,6 +678,39 @@
     #inp:focus { outline: none; border-color: var(--accent); }
 
     #btn-send { font-size: 14px; padding: 9px 18px; height: 42px; }
+    #btn-send.stop { background: var(--red); border-color: var(--red); }
+
+    @media (max-width: 980px) {
+      #runtime-grid { grid-template-columns: repeat(4, minmax(110px, 1fr)); }
+      #hdr { height: auto; min-height: 52px; flex-wrap: wrap; padding-top: 8px; padding-bottom: 8px; }
+      .h-right { flex-wrap: wrap; }
+      #sidebar { width: 190px; }
+    }
+
+    @media (max-width: 620px) {
+      #runtime-grid { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+      .h-ctrl { min-width: 100%; order: 3; }
+      select { min-width: 0; max-width: 100%; }
+      #btn-send { padding: 9px 12px; min-width: 64px; }
+      #workbench { flex-direction: column; }
+      #details-pane {
+        width: auto;
+        max-height: 220px;
+        border-left: none;
+        border-top: 1px solid var(--border);
+      }
+      #sidebar {
+        width: auto;
+        max-height: 150px;
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+      }
+      #compress-panel {
+        left: 0;
+        top: calc(100% + 8px);
+        max-width: calc(100vw - 28px);
+      }
+    }
 
     /* ── Code ────────────────────────────────────────────────── */
     code {
@@ -392,38 +759,83 @@
         <button class="lang-btn" data-lang="tw" onclick="setLang('tw')">繁</button>
       </div>
       <button id="btn-theme" title="Toggle theme" aria-label="Toggle theme">&#9788;</button>
-      <div class="compress-wrap">
-        <button id="btn-compress" data-i18n="btn_compress">Compress</button>
-        <div id="compress-panel" hidden>
-          <div class="cp-section">
-            <div class="cp-hdr" data-i18n="cp_thinking_hdr">Thinking</div>
-            <button id="btn-strip" data-i18n="cp_strip">Strip from context</button>
-          </div>
-          <div class="cp-sep"></div>
-          <div class="cp-section">
-            <div class="cp-hdr" data-i18n="cp_history_hdr">History</div>
-            <div class="cp-row">
-              <span data-i18n="cp_keep">Keep last</span>
-              <input id="trim-n" type="number" min="2" max="100" value="10">
-              <span data-i18n="cp_turns">turns</span>
-              <button id="btn-trim" data-i18n="cp_trim">Trim</button>
-            </div>
-          </div>
-        </div>
-      </div>
-      <button id="btn-export" data-i18n="btn_export">Export</button>
-      <button id="btn-import" data-i18n="btn_import">Import</button>
-      <input  id="file-import" type="file" accept=".json" style="display:none">
-      <button id="btn-clear" data-i18n="btn_clear">Clear</button>
+      <button id="btn-health" data-i18n="btn_health">Health</button>
+      <button id="btn-details" data-i18n="btn_details">Details</button>
     </div>
   </header>
   <div id="switch-progress"><div id="switch-bar"></div></div>
   <div id="notice"></div>
-  <main id="msgs"></main>
-  <footer id="ftr">
-    <textarea id="inp" rows="1"></textarea>
-    <button id="btn-send" class="btn-accent" data-i18n="btn_send">Send</button>
-  </footer>
+  <div id="workbench">
+    <aside id="sidebar">
+      <div class="side-hdr">
+        <span class="side-title" data-i18n="conversations">Chats</span>
+        <div class="side-menu-wrap">
+          <button id="btn-new-chat" class="icon-btn" data-icon="+" data-i18n="btn_new_chat" title="New">New</button>
+          <button id="btn-side-menu" class="icon-btn" data-icon="..." data-i18n="btn_more" title="More">More</button>
+          <div id="side-menu" hidden>
+            <button id="btn-import" data-i18n="btn_import">Import</button>
+            <button id="btn-export" data-i18n="btn_export">Export</button>
+            <input id="file-import" type="file" accept=".json" style="display:none">
+          </div>
+          <div class="compress-wrap" style="display:none">
+            <button id="btn-compress" data-i18n="btn_compress">Compress</button>
+            <div id="compress-panel" hidden>
+              <div class="cp-section">
+                <div class="cp-hdr" data-i18n="cp_thinking_hdr">Thinking</div>
+                <button id="btn-strip" data-i18n="cp_strip">Strip from context</button>
+              </div>
+              <div class="cp-sep"></div>
+              <div class="cp-section">
+                <div class="cp-hdr" data-i18n="cp_history_hdr">History</div>
+                <div class="cp-row">
+                  <span data-i18n="cp_keep">Keep last</span>
+                  <input id="trim-n" type="number" min="2" max="100" value="10">
+                  <span data-i18n="cp_turns">turns</span>
+                  <button id="btn-trim" data-i18n="cp_trim">Trim</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="side-search">
+        <input id="conv-search" type="search" data-i18n-placeholder="search_chats" placeholder="Search">
+      </div>
+      <div id="conv-list"></div>
+    </aside>
+    <section id="chat-pane">
+      <main id="msgs"></main>
+      <div id="edit-banner">
+        <span id="edit-banner-text"></span>
+        <button id="btn-cancel-edit" data-i18n="btn_cancel">Cancel</button>
+      </div>
+      <footer id="ftr">
+        <textarea id="inp" rows="1"></textarea>
+        <button id="btn-send" class="btn-accent" data-i18n="btn_send">Send</button>
+      </footer>
+      <details id="runtime">
+        <summary><span id="m-compact">-</span></summary>
+        <div id="runtime-grid">
+          <div class="metric"><span class="metric-k" data-i18n="status_upstream">Upstream</span><span id="m-upstream" class="metric-v">-</span></div>
+          <div class="metric"><span class="metric-k" data-i18n="status_model">Model</span><span id="m-model" class="metric-v">-</span></div>
+          <div class="metric"><span class="metric-k" data-i18n="status_profile">Profile</span><span id="m-profile" class="metric-v">-</span></div>
+          <div class="metric"><span class="metric-k" data-i18n="status_context">Context</span><span id="m-context" class="metric-v">-</span><div class="bar"><span id="m-context-bar"></span></div></div>
+          <div class="metric"><span class="metric-k" data-i18n="status_tokens">Tokens</span><span id="m-tokens" class="metric-v">-</span></div>
+          <div class="metric"><span class="metric-k" data-i18n="status_tps">TPS</span><span id="m-tps" class="metric-v">-</span></div>
+          <div class="metric"><span class="metric-k" data-i18n="status_slot">Slot</span><span id="m-slot" class="metric-v">-</span></div>
+          <div class="metric"><span class="metric-k" data-i18n="status_health">Health</span><span id="m-health" class="metric-v">-</span></div>
+          <div class="metric"><span class="metric-k" data-i18n="status_logs">Logs</span><span id="m-logs" class="metric-v">-</span></div>
+        </div>
+      </details>
+    </section>
+    <aside id="details-pane">
+      <div class="details-hdr">
+        <span class="details-title" data-i18n="details">Details</span>
+        <button id="btn-close-details" data-i18n="btn_cancel">Cancel</button>
+      </div>
+      <div id="details-body"></div>
+    </aside>
+  </div>
   <script src="/static/i18n.js"></script>
   <script src="/static/app.js"></script>
 </body>
