@@ -198,6 +198,7 @@ function loadConversations() {
         title: String(c.title || t('untitled_chat')),
         messages: normalizeMessages(c.messages || []),
         parent_id: c.parent_id || null,
+        system_prompt: c.system_prompt || null,
         created_at: Number(c.created_at || Date.now()),
         updated_at: Number(c.updated_at || Date.now()),
       })).filter(c => c.messages.length || c.title)
