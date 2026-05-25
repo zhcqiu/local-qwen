@@ -1308,6 +1308,52 @@ function exportChat() {
   URL.revokeObjectURL(url);
 }
 
+function exportChatMd() {
+  if (!chatHistory.length) { showNotice(t('export_empty'), 'error'); return; }
+  const conv = getActiveConversation();
+  const lines = [
+    `# ${conv.title || t('untitled_chat')}`,
+    '',
+    `*Exported: ${new Date().toLocaleString()}*`,
+    '',
+    '---',
+    '',
+  ];
+  chatHistory.forEach(m => {
+    lines.push(m.role === 'user' ? '**User**' : '**Assistant**', '');
+    if (m.reasoning_content) {
+      lines.push('> *Thinking:*');
+      m.reasoning_content.split('\n').forEach(l => lines.push(`> ${l}`));
+      lines.push('');
+    }
+    const text = Array.isArray(m.content)
+      ? (m.content.find(p => p.type === 'text')?.text || '')
+      : (m.content || '');
+    lines.push(text, '', '---', '');
+  });
+  const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `chat-${new Date().toISOString().slice(0, 10)}.md`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportAll() {
+  if (!conversations.length) { showNotice(t('export_empty'), 'error'); return; }
+  const blob = new Blob(
+    [JSON.stringify({ exported_at: Date.now(), conversations }, null, 2)],
+    { type: 'application/json' }
+  );
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `qwen-all-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function importChat() {
   $('file-import').click();
 }
@@ -1450,6 +1496,8 @@ async function init() {
   $('btn-strip').addEventListener('click', stripThinking);
   $('btn-trim').addEventListener('click', trimHistory);
   $('btn-export').addEventListener('click', exportChat);
+  $('btn-export-md').addEventListener('click', exportChatMd);
+  $('btn-export-all').addEventListener('click', exportAll);
   $('btn-import').addEventListener('click', importChat);
   $('file-import').addEventListener('change', handleImport);
   $('btn-new-chat').addEventListener('click', newConversation);
