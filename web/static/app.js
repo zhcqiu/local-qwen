@@ -20,6 +20,8 @@ const app = {
   compressConvId: null,
   pendingImage: null,
   gearOpen: false,
+  contextWarnLevel: '',
+  contextWarnDismissed: false,
   detailsOpen: localStorage.getItem('qwen-details-open') !== 'false',
 };
 
@@ -526,6 +528,7 @@ function render() {
   renderDetailsPane();
   renderControls();
   renderNoticeFromState();
+  renderContextWarn();
   renderSidebar();
 }
 
@@ -721,6 +724,28 @@ function renderNoticeFromState() {
   } else {
     notice.className = 'notice';
   }
+}
+
+function renderContextWarn() {
+  const el = $('context-warn');
+  const txt = $('context-warn-txt');
+  if (!el) return;
+
+  const pct = app.serverState?.llama_upstream?.context?.used_pct ?? 0;
+
+  const newLevel = pct >= 90 ? 'critical' : pct >= 80 ? 'warn' : '';
+  if (newLevel !== app.contextWarnLevel) app.contextWarnDismissed = false;
+  app.contextWarnLevel = newLevel;
+
+  if (!newLevel || app.contextWarnDismissed) {
+    el.className = 'context-warn';
+    return;
+  }
+
+  el.className = `context-warn visible ${newLevel}`;
+  if (txt) txt.textContent = t(newLevel === 'critical' ? 'ctx_warn_90' : 'ctx_warn_80');
+  const compBtn = $('btn-ctx-compress');
+  if (compBtn) compBtn.textContent = t('ctx_compress_cta');
 }
 
 function showNotice(msg, cls, ms = 3000) {
@@ -1445,6 +1470,15 @@ async function init() {
     renderSidebar();
   });
   $('btn-cancel-edit').addEventListener('click', cancelEdit);
+  $('btn-ctx-compress').addEventListener('click', () => {
+    app.contextWarnDismissed = true;
+    renderContextWarn();
+    openCompressForConversation(app.activeConversationId);
+  });
+  $('btn-ctx-dismiss').addEventListener('click', () => {
+    app.contextWarnDismissed = true;
+    renderContextWarn();
+  });
   $('btn-gear').addEventListener('click', e => { e.stopPropagation(); toggleGearPanel(); });
   $('sys-prompt-inp').addEventListener('blur', saveSystemPrompt);
   $('btn-gear-switch').addEventListener('click', handleGearSwitch);
