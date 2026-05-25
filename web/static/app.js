@@ -118,6 +118,17 @@ function appendBranchNav(container, forkIndex) {
     nav.appendChild(btn);
   });
 
+  const cur = conversations.find(c => c.id === app.activeConversationId);
+  if (cur?.parent_id) {
+    const delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.textContent = '✕';
+    delBtn.className = 'branch-btn';
+    delBtn.title = t('delete_branch');
+    delBtn.style.cssText = 'margin-left:6px;color:var(--red);border-color:var(--red)';
+    delBtn.addEventListener('click', deleteCurrentBranch);
+    nav.appendChild(delBtn);
+  }
   container.appendChild(nav);
 }
 
@@ -278,6 +289,17 @@ function deleteConversation(id) {
     renderHistory();
   }
   saveConversations();
+  renderSidebar();
+}
+
+function deleteCurrentBranch() {
+  const conv = conversations.find(c => c.id === app.activeConversationId);
+  if (!conv || !conv.parent_id) return;
+  if (!confirm(t('delete_branch_confirm'))) return;
+  const parentId = conv.parent_id;
+  conversations = conversations.filter(c => c.id !== conv.id);
+  saveConversations();
+  setActiveConversation(parentId);
   renderSidebar();
 }
 
