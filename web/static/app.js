@@ -3,6 +3,7 @@
 const LEGACY_CHAT_KEY = 'qwen-chat-history-v1';
 const CONV_KEY = 'qwen-conversations-v1';
 const ACTIVE_CONV_KEY = 'qwen-active-conversation-v1';
+const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 
 const app = {
   lang: localStorage.getItem('qwen-lang') || 'en',
@@ -66,15 +67,64 @@ function uid() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function cloneData(value) {
+  if (value === undefined || value === null) return value;
+  return JSON.parse(JSON.stringify(value));
+}
+
+function cloneContent(content) {
+  return cloneData(content);
+}
+
 function cloneMessages(messages) {
-  return messages.map(m => ({ ...m }));
+  return (messages || []).map(m => ({
+    role: m.role,
+    content: cloneContent(m.content),
+    reasoning_content: m.reasoning_content,
+    timings: cloneData(m.timings),
+    model: m.model || undefined,
+  }));
+}
+
+function messageText(content) {
+  if (Array.isArray(content)) {
+    return content
+      .filter(p => p && p.type === 'text')
+      .map(p => typeof p.text === 'string' ? p.text : '')
+      .filter(Boolean)
+      .join('\n');
+  }
+  return typeof content === 'string' ? content : String(content ?? '');
+}
+
+function messageImageUrl(content) {
+  if (!Array.isArray(content)) return null;
+  return content.find(p => p?.type === 'image_url')?.image_url?.url || null;
+}
+
+function hasMessageContent(content) {
+  if (Array.isArray(content)) {
+    return content.some(p =>
+      (p?.type === 'text' && typeof p.text === 'string' && p.text.length > 0)
+      || (p?.type === 'image_url' && !!p.image_url?.url)
+    );
+  }
+  return messageText(content).length > 0;
+}
+
+function sameMessageContent(a, b) {
+  return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+}
+
+function normalizeForkIndex(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
 }
 
 function titleFromMessages(messages) {
   const first = messages.find(m => m.role === 'user' && m.content);
-  const rawText = first
-    ? (Array.isArray(first.content) ? (first.content.find(p => p.type === 'text')?.text || '') : first.content)
-    : '';
+  const rawText = first ? messageText(first.content) : '';
   const title = rawText.trim().replace(/\s+/g, ' ') || t('untitled_chat');
   return title.length > 42 ? `${title.slice(0, 42)}...` : title;
 }
@@ -170,10 +220,7 @@ function updateActiveConversation() {
 
 function updateHistoryCharCount() {
   app.historyCharCount = chatHistory.reduce((sum, m) => {
-    const text = Array.isArray(m.content)
-      ? (m.content.find(p => p.type === 'text')?.text || '')
-      : (m.content || '');
-    return sum + text.length;
+    return sum + messageText(m.content).length;
   }, 0);
   updateTokenEst();
 }
@@ -187,8 +234,12 @@ function updateTokenEst() {
 }
 
 function saveConversations() {
-  localStorage.setItem(CONV_KEY, JSON.stringify(conversations));
-  localStorage.setItem(ACTIVE_CONV_KEY, app.activeConversationId);
+  try {
+    localStorage.setItem(CONV_KEY, JSON.stringify(conversations));
+    localStorage.setItem(ACTIVE_CONV_KEY, app.activeConversationId);
+  } catch (e) {
+    showNotice(`${t('save_failed')}: ${e.message}`, 'error', 6000);
+  }
 }
 
 function saveSystemPrompt() {
@@ -231,7 +282,9 @@ function loadConversations() {
         title: String(c.title || t('untitled_chat')),
         messages: normalizeMessages(c.messages || []),
         parent_id: c.parent_id || null,
+        fork_index: normalizeForkIndex(c.fork_index),
         system_prompt: c.system_prompt || null,
+        model: c.model || null,
         created_at: Number(c.created_at || Date.now()),
         updated_at: Number(c.updated_at || Date.now()),
       })).filter(c => c.messages.length || c.title)
@@ -257,7 +310,7 @@ function loadConversations() {
         const cm = c.messages, pm = parent.messages;
         let fi = Math.min(cm.length, pm.length);
         for (let i = 0; i < fi; i++) {
-          if (cm[i].content !== pm[i].content || cm[i].role !== pm[i].role) { fi = i; break; }
+          if (!sameMessageContent(cm[i].content, pm[i].content) || cm[i].role !== pm[i].role) { fi = i; break; }
         }
         c.fork_index = fi;
       }
@@ -301,28 +354,62 @@ function newConversation() {
   renderControls();
 }
 
-function deleteConversation(id) {
-  if (app.isStreaming || conversations.length <= 1) return;
-  if (!confirm(t('delete_confirm'))) return;
-  conversations = conversations.filter(c => c.id !== id);
-  if (app.activeConversationId === id) {
-    app.activeConversationId = conversations[0].id;
-    chatHistory = conversations[0].messages;
+function conversationTreeIds(id) {
+  const ids = new Set([id]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    conversations.forEach(c => {
+      if (c.parent_id && ids.has(c.parent_id) && !ids.has(c.id)) {
+        ids.add(c.id);
+        changed = true;
+      }
+    });
+  }
+  return ids;
+}
+
+function ensureActiveConversationAfterDelete(preferredId = null) {
+  if (!conversations.length) {
+    createConversation([], t('new_chat'));
+    updateHistoryCharCount();
     renderHistory();
+    return;
+  }
+
+  const preferred = preferredId ? conversations.find(c => c.id === preferredId) : null;
+  const active = conversations.find(c => c.id === app.activeConversationId);
+  const next = preferred || active || conversations.find(c => !c.parent_id) || conversations[0];
+  app.activeConversationId = next.id;
+  chatHistory = next.messages;
+  updateHistoryCharCount();
+  renderHistory();
+}
+
+function removeConversationTree(id, preferredNextId = null) {
+  const removeIds = conversationTreeIds(id);
+  conversations = conversations.filter(c => !removeIds.has(c.id));
+  if (removeIds.has(app.activeConversationId) || !conversations.some(c => c.id === app.activeConversationId)) {
+    ensureActiveConversationAfterDelete(preferredNextId);
   }
   saveConversations();
   renderSidebar();
+  renderDetailsPane();
+}
+
+function deleteConversation(id) {
+  if (app.isStreaming) return;
+  const conv = conversations.find(c => c.id === id);
+  if (!conv) return;
+  if (!confirm(t('delete_confirm'))) return;
+  removeConversationTree(id);
 }
 
 function deleteCurrentBranch() {
   const conv = conversations.find(c => c.id === app.activeConversationId);
   if (!conv || !conv.parent_id) return;
   if (!confirm(t('delete_branch_confirm'))) return;
-  const parentId = conv.parent_id;
-  conversations = conversations.filter(c => c.id !== conv.id);
-  saveConversations();
-  setActiveConversation(parentId);
-  renderSidebar();
+  removeConversationTree(conv.id, conv.parent_id);
 }
 
 function renameConversation(id) {
@@ -340,15 +427,6 @@ function renderSidebar() {
   const list = $('conv-list');
   if (!list) return;
 
-  // Rescue compress panel from inside the list before wiping it.
-  // The panel's permanent home is .compress-wrap (display:none in header).
-  const panel = $('compress-panel');
-  const panelHome = document.querySelector('.compress-wrap');
-  if (panel && panelHome && !panel.closest('.compress-wrap')) {
-    panel.hidden = true;
-    panelHome.appendChild(panel);
-  }
-
   list.innerHTML = '';
   const q = app.convSearch.trim().toLowerCase();
   conversations
@@ -356,7 +434,7 @@ function renderSidebar() {
     .filter(conv => !conv.parent_id)
     .filter(conv => {
       if (!q) return true;
-      const hay = `${conv.title || ''}\n${(conv.messages || []).map(m => m.content).join('\n')}`.toLowerCase();
+      const hay = `${conv.title || ''}\n${(conv.messages || []).map(m => messageText(m.content)).join('\n')}`.toLowerCase();
       return hay.includes(q);
     })
     .sort((a, b) => (b.updated_at || 0) - (a.updated_at || 0))
@@ -436,15 +514,12 @@ function renderSidebar() {
       list.appendChild(row);
     });
 
-  // Re-place compress panel into the target conv-item if one is open.
-  if (app.compressConvId && panel) {
+  if (app.compressConvId) {
     const targetRow = list.querySelector(`[data-conv-id="${CSS.escape(app.compressConvId)}"]`);
-    if (targetRow) {
-      targetRow.appendChild(panel);
-      panel.hidden = false;
-    } else {
-      app.compressConvId = null;
-    }
+    const exists = conversations.some(c => c.id === app.compressConvId);
+    if (targetRow) positionCompressPanel(targetRow);
+    else if (exists) positionCompressPanel($('btn-ctx-compress') || $('btn-side-menu'));
+    else closeCompressPanel();
   }
 }
 
@@ -850,8 +925,125 @@ async function runHealth() {
   }
 }
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function renderInlineMd(raw) {
+  const codes = [];
+  let s = escapeHtml(raw).replace(/`([^`]+)`/g, (_, code) => {
+    const token = `\u0000CODE${codes.length}\u0000`;
+    codes.push(`<code>${code}</code>`);
+    return token;
+  });
+
+  s = s
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+|mailto:[^)\s]+)\)/g,
+      '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+
+  codes.forEach((html, i) => { s = s.replace(`\u0000CODE${i}\u0000`, html); });
+  return s;
+}
+
 function renderMd(raw) {
-  return marked.parse(raw || '');
+  const lines = String(raw || '').replace(/\r\n/g, '\n').split('\n');
+  const out = [];
+  let paragraph = [];
+  let list = [];
+  let quote = [];
+  let fence = null;
+  let fenceLines = [];
+
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    out.push(`<p>${renderInlineMd(paragraph.join(' '))}</p>`);
+    paragraph = [];
+  };
+  const flushList = () => {
+    if (!list.length) return;
+    out.push(`<ul>${list.map(item => `<li>${renderInlineMd(item)}</li>`).join('')}</ul>`);
+    list = [];
+  };
+  const flushQuote = () => {
+    if (!quote.length) return;
+    out.push(`<blockquote>${quote.map(l => renderInlineMd(l)).join('<br>')}</blockquote>`);
+    quote = [];
+  };
+  const flushBlocks = () => {
+    flushParagraph();
+    flushList();
+    flushQuote();
+  };
+
+  lines.forEach(line => {
+    const fenceMatch = line.match(/^```(\w+)?\s*$/);
+    if (fenceMatch) {
+      if (fence !== null) {
+        out.push(`<pre><code>${escapeHtml(fenceLines.join('\n'))}</code></pre>`);
+        fence = null;
+        fenceLines = [];
+      } else {
+        flushBlocks();
+        fence = fenceMatch[1] || '';
+      }
+      return;
+    }
+
+    if (fence !== null) {
+      fenceLines.push(line);
+      return;
+    }
+
+    if (!line.trim()) {
+      flushBlocks();
+      return;
+    }
+
+    const heading = line.match(/^(#{1,6})\s+(.+)$/);
+    if (heading) {
+      flushBlocks();
+      const level = heading[1].length;
+      out.push(`<h${level}>${renderInlineMd(heading[2])}</h${level}>`);
+      return;
+    }
+
+    if (/^---+$/.test(line.trim())) {
+      flushBlocks();
+      out.push('<hr>');
+      return;
+    }
+
+    const item = line.match(/^\s*[-*]\s+(.+)$/);
+    if (item) {
+      flushParagraph();
+      flushQuote();
+      list.push(item[1]);
+      return;
+    }
+
+    const quoted = line.match(/^\s*>\s?(.*)$/);
+    if (quoted) {
+      flushParagraph();
+      flushList();
+      quote.push(quoted[1]);
+      return;
+    }
+
+    flushList();
+    flushQuote();
+    paragraph.push(line.trim());
+  });
+
+  if (fence !== null) out.push(`<pre><code>${escapeHtml(fenceLines.join('\n'))}</code></pre>`);
+  flushBlocks();
+  return out.join('\n');
 }
 
 function injectCodeCopyButtons(el) {
@@ -991,10 +1183,29 @@ function clearPendingImage() {
   if (inp) inp.value = '';
 }
 
+function setPendingImageFromContent(content) {
+  clearPendingImage();
+  const url = messageImageUrl(content);
+  if (!url) return;
+  app.pendingImage = { dataUrl: url, mimeType: 'image/*' };
+  const thumb = $('img-thumb');
+  const preview = $('img-preview');
+  if (thumb) { thumb.src = url; thumb.alt = ''; }
+  if (preview) preview.hidden = false;
+}
+
 function handleImageAttach(e) {
   const file = e.target.files?.[0];
   if (!file) return;
   e.target.value = '';
+  if (!file.type.startsWith('image/')) {
+    showNotice(t('img_type_err'), 'error');
+    return;
+  }
+  if (file.size > MAX_IMAGE_BYTES) {
+    showNotice(t('img_size_err').replace('{mb}', String(MAX_IMAGE_BYTES / 1024 / 1024)), 'error', 6000);
+    return;
+  }
   const reader = new FileReader();
   reader.onload = evt => {
     app.pendingImage = { dataUrl: evt.target.result, mimeType: file.type };
@@ -1022,7 +1233,8 @@ function editUserMessage(index) {
     index,
   };
   const inp = $('inp');
-  inp.value = chatHistory[index].content;
+  inp.value = messageText(chatHistory[index].content);
+  setPendingImageFromContent(chatHistory[index].content);
   autoResize(inp);
   inp.focus();
   showNotice(t('edit_branch_notice'), 'ok', 8000);
@@ -1032,6 +1244,7 @@ function editUserMessage(index) {
 function cancelEdit() {
   app.editBranch = null;
   $('inp').value = '';
+  clearPendingImage();
   autoResize($('inp'));
   renderControls();
 }
@@ -1041,7 +1254,8 @@ function retryAssistant(index) {
   for (let i = index - 1; i >= 0; i--) {
     if (chatHistory[i]?.role === 'user') {
       app.editBranch = { sourceId: app.activeConversationId, index: i };
-      $('inp').value = chatHistory[i].content;
+      $('inp').value = messageText(chatHistory[i].content);
+      setPendingImageFromContent(chatHistory[i].content);
       autoResize($('inp'));
       showNotice(t('retry_notice'), 'ok', 2500);
       sendMessage();
@@ -1231,13 +1445,45 @@ async function sendMessage() {
 
 function toggleCompressPanel() {
   const p = $('compress-panel');
-  p.hidden = !p.hidden;
+  if (!p || !p.hidden) {
+    closeCompressPanel();
+    return;
+  }
+  openCompressForConversation(app.activeConversationId);
+}
+
+function closeCompressPanel() {
+  app.compressConvId = null;
+  const p = $('compress-panel');
+  if (p) p.hidden = true;
+}
+
+function positionCompressPanel(anchor) {
+  const panel = $('compress-panel');
+  if (!panel || !anchor) return;
+  panel.hidden = false;
+  const rect = anchor.getBoundingClientRect();
+  const margin = 12;
+  const width = panel.offsetWidth || 280;
+  const height = panel.offsetHeight || 180;
+  let left = rect.left;
+  let top = rect.bottom + 6;
+
+  if (left + width > window.innerWidth - margin) left = window.innerWidth - width - margin;
+  if (top + height > window.innerHeight - margin) top = rect.top - height - 6;
+  left = Math.max(margin, left);
+  top = Math.max(margin, Math.min(top, window.innerHeight - height - margin));
+
+  panel.style.left = `${left}px`;
+  panel.style.top = `${top}px`;
 }
 
 function openCompressForConversation(id) {
   app.compressConvId = id;
   app.openConversationMenu = null;
-  setActiveConversation(id);  // triggers renderSidebar which places the panel
+  setActiveConversation(id);
+  const targetRow = document.querySelector(`[data-conv-id="${CSS.escape(id)}"]`);
+  positionCompressPanel(targetRow || $('btn-ctx-compress') || $('btn-side-menu'));
 }
 
 async function clearServerContext() {
@@ -1253,12 +1499,11 @@ async function clearServerContext() {
 }
 
 function stripThinking() {
-  app.compressConvId = null;
-  $('compress-panel').hidden = true;
+  closeCompressPanel();
   const re = /<think>[\s\S]*?<\/think>\s*/gi;
   let n = 0;
   chatHistory = chatHistory.map(m => {
-    if (m.role !== 'assistant') return m;
+    if (m.role !== 'assistant' || typeof m.content !== 'string') return m;
     const cleaned = m.content.replace(re, '').trimStart();
     if (cleaned.length < m.content.length) {
       n++;
@@ -1273,8 +1518,7 @@ function stripThinking() {
 }
 
 function trimHistory() {
-  app.compressConvId = null;
-  $('compress-panel').hidden = true;
+  closeCompressPanel();
   const turns = Math.max(1, parseInt($('trim-n').value, 10) || 10);
   const keepN = turns * 2;
   if (chatHistory.length <= keepN) {
@@ -1301,7 +1545,7 @@ function exportChat() {
   const messages = chatHistory.map((m, i) => ({
     convId: conv.id,
     role: m.role,
-    content: m.content,
+    content: cloneContent(m.content),
     type: 'text',
     timestamp: conv.created_at + i,
     toolCalls: '',
@@ -1349,9 +1593,7 @@ function exportChatMd() {
       m.reasoning_content.split('\n').forEach(l => lines.push(`> ${l}`));
       lines.push('');
     }
-    const text = Array.isArray(m.content)
-      ? (m.content.find(p => p.type === 'text')?.text || '')
-      : (m.content || '');
+    const text = messageText(m.content);
     lines.push(text, '', '---', '');
   });
   const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
@@ -1394,6 +1636,19 @@ function handleImport(e) {
       return;
     }
     const imported = normalizeImportedChat(data);
+    if (imported.conversations?.length) {
+      const incoming = remapImportedConversations(imported.conversations);
+      conversations = [...incoming, ...conversations];
+      app.activeConversationId = incoming[0].id;
+      chatHistory = incoming[0].messages;
+      updateHistoryCharCount();
+      saveConversations();
+      renderHistory();
+      renderSidebar();
+      renderDetailsPane();
+      showNotice(t('import_convs_ok').replace('{n}', incoming.length), 'ok');
+      return;
+    }
     const messages = imported.messages;
     if (!messages.length) {
       showNotice(t('import_err'), 'error');
@@ -1412,6 +1667,10 @@ function normalizeImportedChat(data) {
     return { title: null, messages: normalizeMessages(data) };
   }
 
+  if (data && typeof data === 'object' && Array.isArray(data.conversations)) {
+    return { conversations: normalizeConversations(data.conversations) };
+  }
+
   if (data && typeof data === 'object' && Array.isArray(data.messages)) {
     const messages = normalizeLlamaWebuiMessages(data);
     return {
@@ -1421,6 +1680,33 @@ function normalizeImportedChat(data) {
   }
 
   return { title: null, messages: [] };
+}
+
+function normalizeConversations(data) {
+  if (!Array.isArray(data)) return [];
+  return data.map(c => ({
+    id: String(c.id || uid()),
+    title: String(c.title || t('untitled_chat')),
+    messages: normalizeMessages(c.messages || []),
+    parent_id: c.parent_id || null,
+    fork_index: normalizeForkIndex(c.fork_index),
+    system_prompt: c.system_prompt || null,
+    model: c.model || null,
+    created_at: Number(c.created_at || Date.now()),
+    updated_at: Number(c.updated_at || Date.now()),
+  })).filter(c => c.messages.length || c.title);
+}
+
+function remapImportedConversations(imported) {
+  const idMap = new Map(imported.map(c => [c.id, uid()]));
+  return imported.map(c => ({
+    ...c,
+    id: idMap.get(c.id),
+    parent_id: c.parent_id ? (idMap.get(c.parent_id) || null) : null,
+    messages: cloneMessages(c.messages),
+    created_at: c.created_at || Date.now(),
+    updated_at: Date.now(),
+  }));
 }
 
 function normalizeLlamaWebuiMessages(data) {
@@ -1461,21 +1747,22 @@ function normalizeMessages(data) {
       timings: m.timings || undefined,
       model: m.model || undefined,
     }))
-    .filter(m => m.content.length > 0);
+    .filter(m => hasMessageContent(m.content));
 }
 
 function renderHistory() {
   $('msgs').innerHTML = '';
   chatHistory.forEach((m, index) => {
     if (m.role === 'user') {
-      const imageUrl = Array.isArray(m.content) ? m.content.find(p => p.type === 'image_url')?.image_url?.url : null;
-      const text = Array.isArray(m.content) ? (m.content.find(p => p.type === 'text')?.text || '') : m.content;
+      const imageUrl = messageImageUrl(m.content);
+      const text = messageText(m.content);
       const { wrap } = addMsg('user', { text, raw: text, imageUrl, index });
       appendBranchNav(wrap, index);
     } else if (m.role === 'system') {
       addMsg('system', { text: m.content });
     } else {
-      const { bubble } = addMsg('assistant', { html: renderMd(m.content), raw: m.content, reasoning: m.reasoning_content, index });
+      const text = messageText(m.content);
+      const { bubble } = addMsg('assistant', { html: renderMd(text), raw: text, reasoning: m.reasoning_content, index });
       injectCodeCopyButtons(bubble);
     }
   });
@@ -1502,7 +1789,6 @@ function clearConversation(id = app.activeConversationId) {
 }
 
 async function init() {
-  marked.setOptions({ gfm: true, breaks: true });
   applyTheme();
   applyI18n();
   loadConversations();
@@ -1554,6 +1840,12 @@ async function init() {
       }
     }
   });
+  window.addEventListener('resize', () => {
+    if (!app.compressConvId) return;
+    const targetRow = document.querySelector(`[data-conv-id="${CSS.escape(app.compressConvId)}"]`);
+    if (targetRow) positionCompressPanel(targetRow);
+    else positionCompressPanel($('btn-ctx-compress') || $('btn-side-menu'));
+  });
 
   const inp = $('inp');
   inp.addEventListener('keydown', e => {
@@ -1563,6 +1855,12 @@ async function init() {
   $('conv-search').addEventListener('input', e => {
     app.convSearch = e.target.value;
     renderSidebar();
+  });
+  $('conv-list').addEventListener('scroll', () => {
+    if (!app.compressConvId) return;
+    const targetRow = document.querySelector(`[data-conv-id="${CSS.escape(app.compressConvId)}"]`);
+    if (targetRow) positionCompressPanel(targetRow);
+    else positionCompressPanel($('btn-ctx-compress') || $('btn-side-menu'));
   });
   $('btn-cancel-edit').addEventListener('click', cancelEdit);
   $('btn-ctx-compress').addEventListener('click', () => {

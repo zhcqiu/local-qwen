@@ -558,6 +558,37 @@ async def api_switch(req: Request) -> JSONResponse:
     return JSONResponse({"accepted": True, "target": state["switching_to"]}, status_code=202)
 
 
+@app.post("/api/clear-context")
+async def api_clear_context(req: Request) -> JSONResponse:
+    """Erase the KV cache of all llama-server slots so context usage drops to 0."""
+    _assert_local(req)
+    async with llama_client(timeout=httpx.Timeout(10.0, connect=5.0)) as client:
+        slots_raw, slots_error, _ = await get_json(client, "/slots")
+        if slots_error or not isinstance(slots_raw, list):
+            return JSONResponse(
+                {"ok": False, "error": slots_error or "slots endpoint unavailable"},
+                status_code=502,
+            )
+        erased, errors = 0, []
+        for slot in slots_raw:
+            slot_id = slot.get("id")
+            if slot_id is None:
+                continue
+            try:
+                r = await client.post(
+                    f"{LLAMA_BASE}/slots/{slot_id}",
+                    json={"action": "erase"},
+                    timeout=5.0,
+                )
+                if r.status_code == 200:
+                    erased += 1
+                else:
+                    errors.append(f"slot {slot_id}: HTTP {r.status_code}")
+            except Exception as e:
+                errors.append(f"slot {slot_id}: {e}")
+        return JSONResponse({"ok": True, "erased": erased, "errors": errors})
+
+
 @app.post("/api/health")
 async def api_health(req: Request) -> JSONResponse:
     _assert_local(req)

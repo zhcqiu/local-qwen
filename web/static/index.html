@@ -157,11 +157,12 @@
     .lang-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
     /* ── Compress panel ──────────────────────────────────────── */
-    .compress-wrap { position: relative; }
+    .compress-wrap { position: static; }
+    .compress-wrap > #btn-compress { display: none; }
     #compress-panel {
-      position: absolute;
-      left: 0;
-      top: calc(100% + 8px);
+      position: fixed;
+      left: 12px;
+      top: 12px;
       min-width: 230px;
       max-width: min(320px, calc(100vw - 28px));
       background: var(--surface);
@@ -706,11 +707,7 @@
         border-right: none;
         border-bottom: 1px solid var(--border);
       }
-      #compress-panel {
-        left: 0;
-        top: calc(100% + 8px);
-        max-width: calc(100vw - 28px);
-      }
+      #compress-panel { max-width: calc(100vw - 28px); }
     }
 
     /* ── Code ────────────────────────────────────────────────── */
@@ -936,7 +933,7 @@
             <button id="btn-export-all" data-i18n="btn_export_all">Export all (JSON)</button>
             <input id="file-import" type="file" accept=".json" style="display:none">
           </div>
-          <div class="compress-wrap" style="display:none">
+          <div class="compress-wrap">
             <button id="btn-compress" data-i18n="btn_compress">Compress</button>
             <div id="compress-panel" hidden>
               <div class="cp-section">
@@ -1029,7 +1026,6 @@
       <div id="details-body"></div>
     </aside>
   </div>
-  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="/static/i18n.js"></script>
   <script src="/static/app.js"></script>
 </body>
