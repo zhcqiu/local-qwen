@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>qwen-ui</title>
+  <!-- Apply saved theme before first paint to avoid flash -->
+  <script>(function(){var t=localStorage.getItem('qwen-theme');if(t==='light')document.documentElement.dataset.theme='light';}());</script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* ── Dark theme (default) ────────────────────────────────── */
+    :root {
+      --bg:                 #111;
+      --surface:            #1c1c1c;
+      --border:             #2e2e2e;
+      --text:               #d8d8d8;
+      --muted:              #606060;
+      --accent:             #4f8ef7;
+      --green:              #50c87a;
+      --amber:              #f5a623;
+      --red:                #e05252;
+      --user-bg:            #1b2e4a;
+      --user-bubble-border: #2a4878;
+      --radius:             6px;
+      --btn-hover-bg:       #282828;
+      --thinking-on-bg:     #18321f;
+      --thinking-block-bg:  #161616;
+      --code-bg:            #0d0d0d;
+      --scrollbar-thumb:    #383838;
+      --notice-err-bg:      #2a0f0f;
+      --notice-err-border:  #4a1010;
+      --notice-ok-bg:       #0f2a18;
+      --notice-ok-border:   #1a4a28;
+    }
+
+    /* ── Light theme ─────────────────────────────────────────── */
+    [data-theme="light"] {
+      --bg:                 #f7f7f8;
+      --surface:            #ffffff;
+      --border:             #e0e0e0;
+      --text:               #1a1a1a;
+      --muted:              #888888;
+      --accent:             #2563eb;
+      --green:              #16a34a;
+      --amber:              #b45309;
+      --red:                #dc2626;
+      --user-bg:            #dbeafe;
+      --user-bubble-border: #93c5fd;
+      --btn-hover-bg:       #ebebeb;
+      --thinking-on-bg:     #dcfce7;
+      --thinking-block-bg:  #fafafa;
+      --code-bg:            #f0f0f0;
+      --scrollbar-thumb:    #c0c0c0;
+      --notice-err-bg:      #fee2e2;
+      --notice-err-border:  #fca5a5;
+      --notice-ok-bg:       #dcfce7;
+      --notice-ok-border:   #86efac;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Header ─────────────────────────────────────────────── */
+    #hdr {
+      flex-shrink: 0;
+      height: 52px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 14px;
+      gap: 10px;
+    }
+
+    .logo { font-weight: 700; font-size: 15px; color: var(--accent); flex-shrink: 0; }
+
+    .h-ctrl {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      overflow: hidden;
+    }
+
+    .h-right {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .ctrl-lbl { font-size: 11px; color: var(--muted); white-space: nowrap; }
+
+    .vsep { width: 1px; height: 20px; background: var(--border); flex-shrink: 0; }
+
+    /* ── Controls ────────────────────────────────────────────── */
+    select, button {
+      font-family: inherit;
+      font-size: 12px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      cursor: pointer;
+      padding: 4px 8px;
+    }
+    select { max-width: 175px; min-width: 120px; }
+    select:focus, button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+    button { transition: background 0.1s, opacity 0.1s; }
+    button:hover:not(:disabled) { background: var(--btn-hover-bg); }
+    button:disabled { opacity: 0.38; cursor: default; }
+
+    .btn-accent {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+      padding: 4px 12px;
+    }
+    .btn-accent:hover:not(:disabled) { background: #3c7de0; border-color: #3c7de0; }
+    [data-theme="light"] .btn-accent:hover:not(:disabled) { background: #1d4ed8; border-color: #1d4ed8; }
+
+    #btn-theme { font-size: 16px; padding: 3px 8px; line-height: 1; }
+    #btn-thinking { min-width: 44px; text-align: center; }
+    #btn-thinking[aria-pressed="true"] {
+      background: var(--thinking-on-bg);
+      color: var(--green);
+      border-color: var(--green);
+    }
+
+    /* ── Status ──────────────────────────────────────────────── */
+    #status { display: flex; align-items: center; gap: 6px; }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--muted);
+      flex-shrink: 0;
+      transition: background 0.3s;
+    }
+    .dot.green { background: var(--green); }
+    .dot.amber { background: var(--amber); animation: pulse 1.2s ease-in-out infinite; }
+    .dot.red   { background: var(--red); }
+    #status-txt { font-size: 12px; color: var(--muted); }
+
+    @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.35; } }
+
+    /* ── Lang buttons ────────────────────────────────────────── */
+    .lang-btns { display: flex; gap: 2px; }
+    .lang-btn { padding: 3px 7px; font-size: 11px; }
+    .lang-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+    /* ── Compress panel ──────────────────────────────────────── */
+    .compress-wrap { position: relative; }
+    #compress-panel {
+      position: absolute;
+      right: 0;
+      top: calc(100% + 8px);
+      min-width: 200px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: 0 4px 16px rgba(0,0,0,.22);
+      padding: 8px;
+      z-index: 200;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    #compress-panel[hidden] { display: none; }
+    .cp-hdr {
+      font-size: 10px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      margin-bottom: 1px;
+    }
+    .cp-sep { height: 1px; background: var(--border); }
+    .cp-section { display: flex; flex-direction: column; gap: 4px; }
+    .cp-row {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .cp-row input[type=number] {
+      width: 42px;
+      padding: 3px 4px;
+      text-align: center;
+      font-family: inherit;
+      font-size: 12px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+    }
+    .cp-row input[type=number]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+    /* ── Switch progress bar ────────────────────────────────── */
+    #switch-progress {
+      flex-shrink: 0;
+      height: 3px;
+      background: var(--border);
+      overflow: hidden;
+      display: none;
+    }
+    #switch-progress.active { display: block; }
+    #switch-bar {
+      height: 100%;
+      width: 40%;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+      animation: switch-shimmer 1.4s ease-in-out infinite;
+    }
+    @keyframes switch-shimmer {
+      from { transform: translateX(-250%); }
+      to   { transform: translateX(350%); }
+    }
+
+    /* ── Notice ──────────────────────────────────────────────── */
+    #notice {
+      flex-shrink: 0;
+      padding: 5px 14px;
+      font-size: 12px;
+      display: none;
+    }
+    #notice.visible { display: block; background: var(--surface); color: var(--muted); border-bottom: 1px solid var(--border); }
+    #notice.error   { background: var(--notice-err-bg); color: var(--red);   border-bottom: 1px solid var(--notice-err-border); }
+    #notice.ok      { background: var(--notice-ok-bg);  color: var(--green); border-bottom: 1px solid var(--notice-ok-border); }
+
+    /* ── Messages ────────────────────────────────────────────── */
+    #msgs {
+      flex: 1;
+      overflow-y: auto;
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .msg { display: flex; flex-direction: column; gap: 4px; max-width: 80%; }
+    .msg.user      { align-self: flex-end;   align-items: flex-end; }
+    .msg.assistant { align-self: flex-start; align-items: flex-start; }
+    .msg-system {
+      align-self: center;
+      font-size: 11px;
+      color: var(--muted);
+      background: var(--surface);
+      border: 1px dashed var(--border);
+      border-radius: var(--radius);
+      padding: 3px 12px;
+      max-width: 90%;
+      text-align: center;
+    }
+
+    .msg-label { font-size: 11px; color: var(--muted); }
+
+    .bubble {
+      padding: 9px 13px;
+      border-radius: var(--radius);
+      font-size: 14px;
+      line-height: 1.6;
+      word-break: break-word;
+      border: 1px solid transparent;
+    }
+    .msg.user .bubble      { background: var(--user-bg); border-color: var(--user-bubble-border); white-space: pre-wrap; }
+    .msg.assistant .bubble { background: var(--surface);  border-color: var(--border); }
+    .bubble.error          { color: var(--red) !important; border-color: var(--red) !important; }
+
+    .streaming::after {
+      content: '\258B';
+      animation: blink 0.7s step-end infinite;
+    }
+    @keyframes blink { 50% { opacity:0; } }
+
+    /* ── Thinking block ──────────────────────────────────────── */
+    .thinking-block {
+      font-size: 12px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--thinking-block-bg);
+      overflow: hidden;
+      max-width: 100%;
+    }
+    .thinking-block summary {
+      padding: 5px 10px;
+      cursor: pointer;
+      color: var(--muted);
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      user-select: none;
+    }
+    .thinking-block summary::before {
+      content: '\25B6';
+      font-size: 9px;
+      display: inline-block;
+      transition: transform 0.15s;
+    }
+    .thinking-block[open] summary::before { transform: rotate(90deg); }
+    .thinking-content {
+      padding: 6px 10px;
+      color: var(--muted);
+      white-space: pre-wrap;
+      max-height: 200px;
+      overflow-y: auto;
+      border-top: 1px solid var(--border);
+      font-family: 'Consolas', 'Cascadia Code', monospace;
+      font-size: 11px;
+    }
+
+    /* ── Footer ──────────────────────────────────────────────── */
+    #ftr {
+      flex-shrink: 0;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      padding: 10px 14px;
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+    }
+
+    #inp {
+      flex: 1;
+      min-height: 42px;
+      max-height: 160px;
+      overflow-y: auto;
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 9px 11px;
+      font-size: 14px;
+      font-family: inherit;
+      line-height: 1.45;
+      resize: none;
+    }
+    #inp:focus { outline: none; border-color: var(--accent); }
+
+    #btn-send { font-size: 14px; padding: 9px 18px; height: 42px; }
+
+    /* ── Code ────────────────────────────────────────────────── */
+    code {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 1px 4px;
+      font-size: 12px;
+      font-family: 'Consolas', 'Cascadia Code', monospace;
+    }
+    pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 12px;
+      overflow-x: auto;
+      margin: 4px 0;
+    }
+    pre code { background: none; border: none; padding: 0; font-size: 13px; }
+
+    /* ── Scrollbar ───────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <header id="hdr">
+    <span class="logo">qwen-ui</span>
+    <div class="h-ctrl">
+      <select id="sel-model" title="Model"></select>
+      <select id="sel-profile" title="Profile"></select>
+      <button id="btn-switch" class="btn-accent" data-i18n="btn_switch">Switch</button>
+      <div class="vsep"></div>
+      <span class="ctrl-lbl" data-i18n="lbl_thinking">Thinking</span>
+      <button id="btn-thinking" aria-pressed="true">On</button>
+    </div>
+    <div class="h-right">
+      <div id="status">
+        <span id="status-dot" class="dot"></span>
+        <span id="status-txt"></span>
+      </div>
+      <div class="lang-btns">
+        <button class="lang-btn" data-lang="en" onclick="setLang('en')">EN</button>
+        <button class="lang-btn" data-lang="zh" onclick="setLang('zh')">中</button>
+        <button class="lang-btn" data-lang="tw" onclick="setLang('tw')">繁</button>
+      </div>
+      <button id="btn-theme" title="Toggle theme" aria-label="Toggle theme">&#9788;</button>
+      <div class="compress-wrap">
+        <button id="btn-compress" data-i18n="btn_compress">Compress</button>
+        <div id="compress-panel" hidden>
+          <div class="cp-section">
+            <div class="cp-hdr" data-i18n="cp_thinking_hdr">Thinking</div>
+            <button id="btn-strip" data-i18n="cp_strip">Strip from context</button>
+          </div>
+          <div class="cp-sep"></div>
+          <div class="cp-section">
+            <div class="cp-hdr" data-i18n="cp_history_hdr">History</div>
+            <div class="cp-row">
+              <span data-i18n="cp_keep">Keep last</span>
+              <input id="trim-n" type="number" min="2" max="100" value="10">
+              <span data-i18n="cp_turns">turns</span>
+              <button id="btn-trim" data-i18n="cp_trim">Trim</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <button id="btn-export" data-i18n="btn_export">Export</button>
+      <button id="btn-import" data-i18n="btn_import">Import</button>
+      <input  id="file-import" type="file" accept=".json" style="display:none">
+      <button id="btn-clear" data-i18n="btn_clear">Clear</button>
+    </div>
+  </header>
+  <div id="switch-progress"><div id="switch-bar"></div></div>
+  <div id="notice"></div>
+  <main id="msgs"></main>
+  <footer id="ftr">
+    <textarea id="inp" rows="1"></textarea>
+    <button id="btn-send" class="btn-accent" data-i18n="btn_send">Send</button>
+  </footer>
+  <script src="/static/i18n.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

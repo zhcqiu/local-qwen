@@ -1,0 +1,56 @@
+{
+  "_comment": "Registry of GGUF models the launcher knows about. Edit 'default' or pass -Model <id> to switch. NCpuMoe (0..n_layer) is the offload knob; profile presets in qwen.ps1 assume n_layer=40 (Qwen3.6-35B-A3B family). Vram_hint is a rough idle MiB at the listed NCpuMoe / ctx baseline (RTX 3080 10G measurements where available, scaled estimates otherwise).",
+  "default": "unsloth-q4km",
+  "models": {
+    "unsloth-q4km": {
+      "hf": "unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_M",
+      "alias": "qwen3.6-35b-a3b",
+      "n_layer": 40,
+      "size_gb": 22.1,
+      "mmproj_url": "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/mmproj-BF16.gguf?download=true",
+      "mmproj_file": "mmproj/unsloth-q4km-mmproj-BF16.gguf",
+      "recommended_profile": "balanced",
+      "notes": "Default. Sweep-tuned on RTX 3080: balanced profile (N=29, ctx=24576) achieves ~41 tok/s gen."
+    },
+    "hauhau-q4km": {
+      "hf": "HauhauCS/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:Q4_K_M",
+      "alias": "hauhau-35b-q4km",
+      "n_layer": 40,
+      "size_gb": 21.0,
+      "mmproj_url": "https://huggingface.co/HauhauCS/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive/resolve/main/mmproj-Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-f16.gguf?download=true",
+      "mmproj_file": "mmproj/hauhau-aggressive-f16.gguf",
+      "recommended_profile": "balanced",
+      "notes": "Uncensored Aggressive variant. Same arch as unsloth-q4km, so balanced profile should carry over."
+    },
+    "hauhau-q4kp": {
+      "hf": "HauhauCS/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:Q4_K_P",
+      "alias": "hauhau-35b-q4kp",
+      "n_layer": 40,
+      "size_gb": 23.0,
+      "mmproj_url": "https://huggingface.co/HauhauCS/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive/resolve/main/mmproj-Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-f16.gguf?download=true",
+      "mmproj_file": "mmproj/hauhau-aggressive-f16.gguf",
+      "recommended_profile": "conserve",
+      "notes": "Article calls this 4090-recommended. On 10G GPUs prefer 'conserve' (N>=33) or expect higher CPU offload."
+    },
+    "hauhau-iq4nl": {
+      "hf": "HauhauCS/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:IQ4_NL",
+      "alias": "hauhau-35b-iq4nl",
+      "n_layer": 40,
+      "size_gb": 20.0,
+      "mmproj_url": "https://huggingface.co/HauhauCS/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive/resolve/main/mmproj-Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-f16.gguf?download=true",
+      "mmproj_file": "mmproj/hauhau-aggressive-f16.gguf",
+      "recommended_profile": "balanced",
+      "notes": "High-compression high-quality. Slightly smaller than Q4_K_M so may leave a bit more VRAM headroom."
+    },
+    "hauhau-iq2m": {
+      "hf": "HauhauCS/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:IQ2_M",
+      "alias": "hauhau-35b-iq2m",
+      "n_layer": 40,
+      "size_gb": 11.0,
+      "mmproj_url": "https://huggingface.co/HauhauCS/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive/resolve/main/mmproj-Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-f16.gguf?download=true",
+      "mmproj_file": "mmproj/hauhau-aggressive-f16.gguf",
+      "recommended_profile": "longctx",
+      "notes": "Smallest viable quant. Targets 6-8G GPUs; on 10G you can push ctx much higher or reduce NCpuMoe."
+    }
+  }
+}

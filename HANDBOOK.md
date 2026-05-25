@@ -15,7 +15,9 @@ qwen health             # send a test request and report tok/s
 qwen restart -Profile safe   # restart with a different profile
 qwen stop               # stop the server
 qwen config -NCpuMoe 30 -Ctx 16384   # preview params without starting
-qwen help               # full usage
+qwen -h                              # overview (or: qwen help)
+qwen <action> -h                     # focused help for one action (e.g. qwen start -h)
+qwen help <topic>                    # topic page (profiles | models | lan | examples | lang | all)
 ```
 
 `qwen` is a `Set-Alias` pointing to `scripts\qwen.ps1` in this repo.
@@ -457,6 +459,76 @@ Set-Alias qwen '<absolute-path-to-repo>\scripts\qwen.ps1'
 
 To remove the `qwen` command, delete that line from your profile.
 
+### 8.9 Switching Models
+
+All scripts read model definitions from [`models.json`](../models.json) at the repo root. Resolution order:
+
+1. `-Model <id>` flag (highest priority)
+2. `$env:QWEN_MODEL` (persists for the shell session)
+3. `default` field in `models.json`
+
+```powershell
+qwen start                              # default model
+qwen start -Model hauhau-q4km           # one-off switch
+qwen config -Model hauhau-iq2m          # preview without launching
+$env:QWEN_MODEL = 'hauhau-iq4nl'        # persist for this shell
+qwen restart -Background                 #   ↳ picks up the env var
+```
+
+Seeded entries are documented in `README.md` → *Model Variants*. Each entry stores:
+
+- `hf` — passed to `llama-server -hf <repo>:<quant>`; weights download to `models/` on first launch
+- `alias` — value clients must send in the `model` field of OpenAI-compatible requests
+- `n_layer` — used as the upper bound for `--n-cpu-moe` (all current entries are 40)
+- `mmproj_url` / `mmproj_file` — optional; the launcher auto-downloads on first use of the `vision` profile
+
+To add a new model, append an entry to `models.json` and re-launch. Same architecture as Qwen3.6-35B-A3B (40 layers, 256 experts, top-8) → existing profile presets carry over. Different architecture → re-run the sweep (§5) to find the new `--n-cpu-moe` sweet spot.
+
+`bench-config.ps1` tags results with the resolved model id, so sweep CSVs from different models stay distinguishable.
+
+### 8.10 Help System
+
+There are exactly three help calls to remember:
+
+| Need | Command |
+|---|---|
+| Overview (actions, topics, common recipes) | `qwen -h` |
+| Focused help for one action | `qwen <action> -h`  (e.g. `qwen start -h`) |
+| Cross-cutting topic page | `qwen help <topic>` |
+
+`-h` is the canonical flag. `-Help` and `-?` are accepted aliases. PowerShell does not support `--help` (the language parses it as `-help`, which then collides with our switch); use `-h`.
+
+**Per-action help** exists for every action:
+
+```
+qwen start -h        qwen restart -h     qwen health -h     qwen config -h
+qwen stop -h         qwen status -h      qwen validate -h
+```
+
+Each prints: synopsis, signature, relevant flags only for that action, and 2–4 examples. No flag dumped that doesn't apply to that action.
+
+**Topic pages** cover things that span actions:
+
+| Topic | Contents |
+|---|---|
+| `qwen help models` | Listing/switching models, resolution precedence, registry schema |
+| `qwen help profiles` | Profile cheat sheet (safe / balanced / longctx / conserve / vision), resolution order |
+| `qwen help lan` | LAN/WSL exposure + API key + firewall rule |
+| `qwen help examples` | Common command patterns |
+| `qwen help lang` | How to set the help language permanently |
+| `qwen help actions` | All actions listed with one-line descriptions |
+| `qwen help all` | The full `Get-Help -Full` dump (PowerShell-native, verbose) |
+
+**Language.** Default is English. Three ways to switch to Chinese:
+
+```powershell
+qwen <anything> -h -Zh                  # one-off override
+$env:QWEN_HELP_LANG = 'zh'              # this shell only
+# Add the line above to $PROFILE for global persistence.
+```
+
+Resolution: `-En` / `-Zh` flag > `$env:QWEN_HELP_LANG` > English. `qwen help lang` prints the currently-effective language and the persistence recipe.
+
 ---
 
 ## 9. Integration / Client Usage
@@ -484,7 +556,7 @@ Starting with `-Lan`:
 | SSH'd headless machine on same LAN | LAN | `http://<LAN-IP>:8080/v1` | `Authorization: Bearer <key>` |
 | Public internet | — | **Do not expose** — no hardening | |
 
-Model name: set by `$ModelAlias` at the top of `qwen.ps1` (default: `qwen3.6-35b-a3b`).
+Model name: defined per-model in `models.json` under the `alias` field. Clients must send the alias of whichever model the server was started with — each model has a unique alias (e.g. `qwen3.6-35b-a3b` for unsloth-q4km, `hauhau-35b-q4km`/`hauhau-35b-q4kp`/`hauhau-35b-iq4nl`/`hauhau-35b-iq2m` for the Hauhau variants). Confirm the active alias with `GET /v1/models`.
 
 ### 9.2 Python (openai SDK)
 
@@ -643,7 +715,7 @@ The model by default writes reasoning to `message.reasoning_content` before writ
 
 ## 10. Maintenance
 
-### 10.1 Updating llama.cpp (Recommended Every 1–3 Months)
+### 10.1 Updating llama.cpp (Recommended Every 1 Month)
 
 ```powershell
 $ver = 'b9500'  # replace with latest build number

@@ -107,6 +107,28 @@ print(resp.choices[0].message.content)
 
 ---
 
+## 帮助系统
+
+只需要记三种：
+
+```powershell
+qwen -h                     # 概览（actions、topics、常用命令）
+qwen <action> -h            # 单个 action 的专属帮助 — 例如 qwen start -h
+qwen help <topic>           # 跨 action 的主题页
+```
+
+`-h` / `--help` / `-Help` / `-?` 均可接受。每个 action（`start`、`stop`、`restart`、`status`、`health`、`config`、`validate`）都有自己的页面，只列该 action 相关的 flags + 2–4 个示例。主题页覆盖跨 action 的概念：`models`、`profiles`、`lan`、`examples`、`lang`、`actions`、`all`。
+
+默认英文。要永久切到中文，在 `$PROFILE` 加：
+
+```powershell
+$env:QWEN_HELP_LANG = 'zh'
+```
+
+单次覆盖：在任意 help 命令后加 `-Zh`（或 `-En`）。`qwen help lang` 显示当前设置和持久化方法。
+
+---
+
 ## 性能基准
 
 硬件：**i7-13700KF / 64 GB / RTX 3080 10 GB**，llama.cpp b9294 CUDA 12.4。
@@ -145,29 +167,98 @@ print(resp.choices[0].message.content)
 
 ## 模型变体
 
-所有变体均来自 [unsloth/Qwen3.6-35B-A3B-GGUF](https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF)：
+模型列表集中在仓库根目录的 [`models.json`](models.json)。启动器按以下优先级解析使用哪个模型：
 
-| 变体 | 大小 | 质量 | 适用场景 |
+1. 命令行 `-Model <id>`
+2. 环境变量 `$env:QWEN_MODEL`
+3. `models.json` 的 `default` 字段
+
+预置 id：
+
+| id | HF 仓库 : 量化 | 大小 | 说明 |
 |---|---|---|---|
-| UD-Q4_K_M | 22.1 GB | 良好 | 默认，64 GB 内存的甜点 |
-| UD-IQ4_XS | 17.7 GB | 可接受 | 32 GB 内存或需要更长上下文 |
-| UD-Q5_K_M | 26.5 GB | 更好 | 128 GB 内存 / 24 GB+ GPU |
-| UD-Q6_K | 29.3 GB | 最好 | 128 GB 内存 / 24 GB+ GPU |
+| `unsloth-q4km` | `unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_M` | 22.1 GB | 默认；RTX 3080 sweep 调优后的基线（balanced profile 约 41 tok/s）。 |
+| `hauhau-q4km` | `HauhauCS/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:Q4_K_M` | 21 GB | Uncensored Aggressive 越狱版，架构一致，参数沿用。 |
+| `hauhau-q4kp` | `…-Aggressive:Q4_K_P` | 23 GB | 体积更大；10 GB 显卡建议 `-Profile conserve`。 |
+| `hauhau-iq4nl` | `…-Aggressive:IQ4_NL` | 20 GB | 高压缩高质量。VRAM 略宽松。 |
+| `hauhau-iq2m` | `…-Aggressive:IQ2_M` | 11 GB | 最小可用量化；面向 6-8 GB 显卡。 |
 
-切换变体：修改 `scripts/qwen.ps1` 顶部的 `$ModelHf` 变量。
+常用调用：
+
+```powershell
+# 使用默认模型（unsloth-q4km）
+.\scripts\qwen.ps1 start
+
+# 临时切换
+.\scripts\qwen.ps1 start -Model hauhau-q4km
+
+# 当前 shell 持久化
+$env:QWEN_MODEL = 'hauhau-iq4nl'
+.\scripts\qwen.ps1 restart -Background
+
+# 只打印解析后的配置，不启动
+.\scripts\qwen.ps1 config -Model hauhau-iq2m
+```
+
+`healthcheck.ps1`、`bench-config.ps1`、`run-qwen36-35b-a3b.ps1` 都支持同一个 `-Model` 参数，也都读 `$env:QWEN_MODEL`。
+
+---
+
+## 切换 Profile（VRAM / 上下文 trade-off）
+
+Profile 是预设的 `--n-cpu-moe` + `--ctx-size` 组合，按 Qwen3.6-35B-A3B（n_layer=40）调优。**不需要改 models.json**，命令行直接切换：
+
+```powershell
+qwen start -Profile safe        # N=31, ctx=16384, 余量 ~540 MB（桌面应用多时用）
+qwen start -Profile balanced    # N=29, ctx=24576, sweep 最优（默认；纯文本）
+qwen start -Profile longctx     # N=30, ctx=32768, 牺牲少量速度换最长 ctx
+qwen start -Profile conserve    # N=33, ctx=8192,  释放 ~1 GB VRAM
+qwen start -Profile vision      # N=35, ctx=16384 + mmproj 加载（启用图像输入）
+```
+
+Profile 解析优先级：
+
+1. 命令行 `-Profile <name>`
+2. 当前模型在 `models.json` 中的 `recommended_profile`
+3. 兜底 `balanced`
+
+`qwen config` 会打印解析结果及来源，例如：
+
+```
+Profile        : conserve
+  source       : model.recommended_profile (hauhau-q4kp)
+```
+
+需要精细调整时也可用单参数覆盖（在 profile 之上叠加）：
+
+```powershell
+qwen start -Profile balanced -NCpuMoe 30 -Ctx 16384
+```
+
+约束：`-NCpuMoe` 必须 ∈ `[0, n_layer]`，超出会在启动前报错。
+
+需要给某个模型固定默认 profile（而不是每次都打 `-Profile`），把它的 `recommended_profile` 字段写进 `models.json` 即可。
 
 ---
 
 ## 切换到新版模型
 
-当新版 Qwen 模型发布时，更新 `scripts/qwen.ps1` 顶部的两个变量：
+在 `models.json` 添加新条目：
 
-```powershell
-$ModelHf    = 'unsloth/Qwen3.7-XXX-GGUF:UD-Q4_K_M'
-$ModelAlias = 'qwen3.7-xxx'
+```json
+"qwen37-q4km": {
+  "hf": "unsloth/Qwen3.7-XXX-GGUF:UD-Q4_K_M",
+  "alias": "qwen3.7-xxx",
+  "n_layer": 40,
+  "size_gb": 22.0,
+  "mmproj_url": "https://huggingface.co/.../mmproj-BF16.gguf?download=true",
+  "mmproj_file": "mmproj/qwen37-mmproj-BF16.gguf",
+  "recommended_profile": "balanced",
+  "notes": "..."
+}
 ```
 
-然后重新跑一遍 sweep，因为架构变化（层数、expert 数等）会影响 `--n-cpu-moe` 的最优点。
+然后 `qwen.ps1 start -Model qwen37-q4km`。如果架构变化（`n_layer` 或 expert 数变了），需要重新跑 sweep，`--n-cpu-moe` 的最优点会移位。同属 A3B 家族（n_layer=40）的模型可直接复用现有 profile 预设。
 
 ---
 
@@ -192,6 +283,23 @@ qwen start -Lan -Background
 绑定到 `0.0.0.0:8080`，自动生成 API key（存储到 `.apikey`），并尝试创建 Windows 防火墙规则。客户端使用 `Authorization: Bearer <key>` 鉴权。
 
 完整步骤见 [HANDBOOK_zh.md §9.6](HANDBOOK_zh.md)。
+
+---
+
+## 聊天 Web UI
+
+浏览器端聊天界面，支持模型/profile 切换、思维链开关、中英繁三语界面。
+
+**前置条件：** PATH 中需有 Python 3.8+，首次运行自动在 `web/.venv` 创建虚拟环境。
+
+```powershell
+qwen start -Background      # 先启动 llama-server
+qwen ui                     # 在浏览器打开 http://127.0.0.1:8090
+qwen ui -Background         # 后台运行（日志 → logs\qwen-ui.log）
+qwen ui -h                  # 完整参数说明
+```
+
+UI 将 `/v1/*` 代理到 llama-server（默认 8080 端口）。若 llama-server 在别的端口，启动前设置 `$env:QWEN_LLAMA_PORT`。
 
 ---
 

@@ -17,7 +17,9 @@ qwen health             # 测响应速度
 qwen restart -Profile safe   # 切换到 safe profile 重启
 qwen stop               # 停止
 qwen config -NCpuMoe 30 -Ctx 16384   # 预览参数（不启动）
-qwen help               # 完整用法
+qwen -h                              # 概览（等价 qwen help）
+qwen <action> -h                     # 单个 action 的帮助（如 qwen start -h）
+qwen help <topic>                    # 主题页（profiles | models | lan | examples | lang | all）
 ```
 
 `qwen` 是 `Set-Alias` 指向 `<repo-root>\scripts\qwen.ps1`，已加到用户 PowerShell profile。
@@ -432,6 +434,76 @@ $results | Export-Csv "<repo-root>\logs\custom-sweep.csv" -NoTypeInformation
 - 脚本本体：`<repo-root>\scripts\qwen.ps1`
 - alias 定义：用户 PowerShell profile（`$PROFILE`）中的 `Set-Alias qwen ...` 行。删掉这行即可去除 `qwen` 命令。
 
+### 8.9 切换模型
+
+所有脚本都从仓库根目录的 [`models.json`](../models.json) 读取模型定义。解析优先级：
+
+1. 命令行 `-Model <id>`（最高）
+2. `$env:QWEN_MODEL`（在当前 shell 持久化）
+3. `models.json` 的 `default` 字段
+
+```powershell
+qwen start                              # 默认模型
+qwen start -Model hauhau-q4km           # 临时切换
+qwen config -Model hauhau-iq2m          # 只预览，不启动
+$env:QWEN_MODEL = 'hauhau-iq4nl'        # 当前 shell 持久化
+qwen restart -Background                 #   ↳ 自动读取上面的环境变量
+```
+
+预置条目见 `README_zh.md` → *模型变体*。每个条目存：
+
+- `hf` — 传给 `llama-server -hf <repo>:<quant>`；首次启动时 `models/` 自动下载权重
+- `alias` — 客户端在 OpenAI 兼容请求里 `model` 字段必须填的值
+- `n_layer` — 决定 `--n-cpu-moe` 的上限（当前所有条目都是 40）
+- `mmproj_url` / `mmproj_file` — 可选；vision profile 首次使用时由启动器自动下载
+
+要加新模型，在 `models.json` 追加一项后重启即可。架构与 Qwen3.6-35B-A3B 一致（40 层 / 256 expert / top-8）的模型可直接复用现有 profile 预设；架构不同则需重跑 sweep（§5）找新的 `--n-cpu-moe` 最优点。
+
+`bench-config.ps1` 会把解析出的 model id 写进结果对象，因此跨模型的 sweep CSV 不会混淆。
+
+### 8.10 帮助系统
+
+只需要记三种调用：
+
+| 需求 | 命令 |
+|---|---|
+| 概览（actions、topics、常用命令） | `qwen -h` |
+| 某个 action 的专属帮助 | `qwen <action> -h`（如 `qwen start -h`） |
+| 跨 action 的主题页 | `qwen help <topic>` |
+
+`-h` 是规范写法。`-Help`、`-?`、`--help`、`--h` 均被接受（脚本会归一）。
+
+**每个 action 都有专属帮助页**：
+
+```
+qwen start -h        qwen restart -h     qwen health -h     qwen config -h
+qwen stop -h         qwen status -h      qwen validate -h
+```
+
+每页包含：synopsis、参数签名、该 action 相关 flags（只列相关的）、2–4 个示例。不会把无关的全局 flag 全部 dump 出来。
+
+**主题页**覆盖跨 action 的概念：
+
+| 主题 | 内容 |
+|---|---|
+| `qwen help models` | 模型列表、切换、解析优先级、registry schema |
+| `qwen help profiles` | Profile cheat sheet（safe/balanced/longctx/conserve/vision）、解析顺序 |
+| `qwen help lan` | LAN/WSL 暴露 + API key + 防火墙规则 |
+| `qwen help examples` | 常用命令样例 |
+| `qwen help lang` | 帮助语言永久化的方法 |
+| `qwen help actions` | 列出所有 actions + 一句话说明 |
+| `qwen help all` | 完整 `Get-Help -Full` 输出（PowerShell 原生，冗长） |
+
+**语言**。默认英文。三种切中文方式：
+
+```powershell
+qwen <任意命令> -h -Zh                  # 单次覆盖
+$env:QWEN_HELP_LANG = 'zh'              # 当前 shell
+# 把上面这行写进 $PROFILE，永久生效。
+```
+
+解析优先级：`-En` / `-Zh` flag > `$env:QWEN_HELP_LANG` > 英文兜底。`qwen help lang` 打印当前生效语言和持久化方法。
+
 ---
 
 ## 9. 集成 / 客户端用法
@@ -459,9 +531,10 @@ $results | Export-Csv "<repo-root>\logs\custom-sweep.csv" -NoTypeInformation
 | LAN 上 SSH 进的无头机 | -Lan | `http://<LAN-IP>:8080/v1` | `Authorization: Bearer <key>` |
 | 公网 | — | **不要暴露**，没强化 |
 
-Model name: `qwen3.6-35b-a3b`（由 `--alias` 设定）。
+Model name: 每个模型在 `models.json` 的 `alias` 字段里单独定义，每个模型有唯一 alias（例如 unsloth-q4km 对应 `qwen3.6-35b-a3b`，Hauhau 各变体分别对应 `hauhau-35b-q4km`/`hauhau-35b-q4kp`/`hauhau-35b-iq4nl`/`hauhau-35b-iq2m`）。客户端请求中 `model` 字段必须填当前启动模型的 alias，可通过 `GET /v1/models` 确认当前值。
 
 ### 9.2 Python (openai SDK)
+
 ```python
 from openai import OpenAI
 
@@ -655,7 +728,7 @@ qwen restart -Lan -Background   # 下次启动会建新的
 
 ## 10. 维护例行操作
 
-### 10.1 更新 llama.cpp（推荐 1-3 月一次）
+### 10.1 更新 llama.cpp（推荐 1 月一次）
 
 ```powershell
 # 看新版本：访问 https://github.com/ggml-org/llama.cpp/releases

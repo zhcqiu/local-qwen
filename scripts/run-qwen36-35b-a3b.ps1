@@ -1,10 +1,20 @@
-# Qwen3.6-35B-A3B local launcher (Windows native, CUDA 12.4 backend)
-# Hardware: i7-13700KF / 64GB DDR / RTX 3080 10GB
-# Model:    unsloth/Qwen3.6-35B-A3B-GGUF :: UD-Q4_K_M (~22.1 GB)
+# Qwen3.6-35B-A3B family local launcher (Windows native, CUDA 12.4 backend).
+# Hardware: i7-13700KF / 64GB DDR / RTX 3080 10GB.
+# Default model: unsloth/Qwen3.6-35B-A3B-GGUF :: UD-Q4_K_M (~22.1 GB).
+#
+# Model is resolved from ../models.json (override with -Model <id> or $env:QWEN_MODEL).
+# For day-to-day use prefer scripts\qwen.ps1 — this script keeps the bare-bones
+# foreground launch with the historical sweep-optimal tuning hard-coded.
+
+param(
+  [string]$Model
+)
 
 $ErrorActionPreference = 'Stop'
+. "$PSScriptRoot\_lib.ps1"
 
-$Root    = Split-Path -Parent $PSScriptRoot
+$ModelCfg = Resolve-Model -Explicit $Model
+$Root    = Get-RepoRoot
 $Bin     = "$Root\bin"
 $Logs    = "$Root\logs"
 $Models  = "$Root\models"
@@ -18,6 +28,9 @@ New-Item -ItemType Directory -Force -Path $Logs, $Models | Out-Null
 
 # Pre-flight snapshot
 "=== Launch $Stamp ===" | Out-File $LogFile -Encoding utf8
+"model id    : $($ModelCfg.id)" | Out-File $LogFile -Append -Encoding utf8
+"model hf    : $($ModelCfg.hf)" | Out-File $LogFile -Append -Encoding utf8
+"model alias : $($ModelCfg.alias)" | Out-File $LogFile -Append -Encoding utf8
 "llama-server: $Bin\llama-server.exe" | Out-File $LogFile -Append -Encoding utf8
 (& "$Bin\llama-server.exe" --version 2>&1) | Out-File $LogFile -Append -Encoding utf8
 "" | Out-File $LogFile -Append -Encoding utf8
@@ -26,27 +39,21 @@ New-Item -ItemType Directory -Force -Path $Logs, $Models | Out-Null
 "" | Out-File $LogFile -Append -Encoding utf8
 "--- Launch params ---" | Out-File $LogFile -Append -Encoding utf8
 
-# Optimized launch parameters
-#  -ngl 999            : send every layer to GPU (non-expert tensors)
-#  --n-cpu-moe 29      : model has 40 layers / 256 experts / top-8.
-#                        Layers 0-28 keep experts on CPU/RAM, layers 29-39 push
-#                        experts (11 layers) onto GPU. Found via full sweep —
-#                        N=28 starts thrashing compute buffer; N>29 leaves
-#                        speed on the table. Measured +20% gen tok/s vs the
-#                        starting --cpu-moe config.
-#  --flash-attn auto   : Ampere supports FA
-#  -ctk q8_0 -ctv q8_0 : q8_0 KV — Qwen GQA keeps KV small even at 24k
-#  -c 24576            : context (model native is 262144). At N=29+ctx=24576
-#                        VRAM idle ~9.8 GB, peak under 7k prompt ~9.9 GB.
-#                        ctx can go to 32768 with the same VRAM, but 32k full
-#                        prompts may push compute buffer over the edge.
-#  -t 8 -tb 8          : 8 P-cores only; E-cores hurt MoE expert math
-#  -b 2048 -ub 512     : default batch sizes — sweep showed ub=1024 thrashes,
-#                        ub=256 kills prompt eval
-#  --jinja             : use Qwen native chat template
+# Sweep-optimal launch parameters (Qwen3.6-35B-A3B family, n_layer=40 / 256 experts / top-8).
+#   -ngl 999            : send every layer to GPU (non-expert tensors)
+#   --n-cpu-moe 29      : layers 0-28 keep experts on CPU/RAM, 29-39 push experts onto GPU.
+#                         Found via full sweep on unsloth UD-Q4_K_M — N=28 thrashes compute
+#                         buffer; N>29 leaves speed on the table. Same architecture means
+#                         this tuning carries over to HauhauCS Q4_K_M / IQ4_NL.
+#   --flash-attn auto   : Ampere supports FA
+#   -ctk q8_0 -ctv q8_0 : q8_0 KV (Qwen GQA keeps KV small even at 24k)
+#   -c 24576            : context. Native is 262144. At N=29+ctx=24576 VRAM idle ~9.8 GB.
+#   -t 8 -tb 8          : 8 P-cores only; E-cores hurt MoE expert math
+#   -b 2048 -ub 512     : sweep-validated batch sizes
+#   --jinja             : use native chat template
 $LlamaArgs = @(
-  '-hf', 'unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_M',
-  '--alias', 'qwen3.6-35b-a3b',
+  '-hf', $ModelCfg.hf,
+  '--alias', $ModelCfg.alias,
   '--host', '127.0.0.1',
   '--port', '8080',
   '-c', '24576',
@@ -66,7 +73,7 @@ $LlamaArgs = @(
 "" | Out-File $LogFile -Append -Encoding utf8
 "--- Server output ---" | Out-File $LogFile -Append -Encoding utf8
 
-Write-Host "Launching llama-server (CUDA 12.4)..." -ForegroundColor Green
+Write-Host "Launching llama-server (CUDA 12.4) for model: $($ModelCfg.id)" -ForegroundColor Green
 Write-Host "Log: $LogFile" -ForegroundColor DarkGray
 Write-Host "Endpoint: http://127.0.0.1:8080" -ForegroundColor Cyan
 Write-Host ""
