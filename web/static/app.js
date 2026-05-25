@@ -18,6 +18,7 @@ const app = {
   convSearch: '',
   openConversationMenu: null,
   compressConvId: null,
+  pendingImage: null,
   detailsOpen: localStorage.getItem('qwen-details-open') !== 'false',
 };
 
@@ -652,6 +653,12 @@ function renderControls() {
     banner.classList.toggle('visible', !!app.editBranch);
     $('edit-banner-text').textContent = app.editBranch ? t('edit_branch_notice') : '';
   }
+  const attachBtn = $('btn-attach');
+  if (attachBtn) {
+    const isVision = app.serverState?.server === 'running' && app.serverState?.current?.profile === 'vision';
+    attachBtn.hidden = !isVision;
+    if (!isVision && app.pendingImage) clearPendingImage();
+  }
 }
 
 function renderNoticeFromState() {
@@ -812,8 +819,18 @@ function addMsg(role, opts = {}) {
 
   const bubble = document.createElement('div');
   bubble.className = 'bubble' + (opts.error ? ' error' : '');
-  if (opts.text) bubble.textContent = opts.text;
-  if (opts.html) bubble.innerHTML = opts.html;
+  if (opts.imageUrl) {
+    const img = document.createElement('img');
+    img.src = opts.imageUrl;
+    img.className = 'msg-image';
+    img.alt = '';
+    bubble.appendChild(img);
+  }
+  if (opts.html) {
+    bubble.innerHTML = opts.html;
+  } else if (opts.text) {
+    bubble.appendChild(document.createTextNode(opts.text));
+  }
 
   if (thinkEl && opts.reasoning) {
     thinkEl.hidden = false;
@@ -846,6 +863,31 @@ async function copyText(text) {
 function scrollBottom() {
   const msgs = $('msgs');
   msgs.scrollTop = msgs.scrollHeight;
+}
+
+function clearPendingImage() {
+  app.pendingImage = null;
+  const preview = $('img-preview');
+  const thumb = $('img-thumb');
+  if (preview) preview.hidden = true;
+  if (thumb) { thumb.src = ''; thumb.alt = ''; }
+  const inp = $('img-attach');
+  if (inp) inp.value = '';
+}
+
+function handleImageAttach(e) {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  e.target.value = '';
+  const reader = new FileReader();
+  reader.onload = evt => {
+    app.pendingImage = { dataUrl: evt.target.result, mimeType: file.type };
+    const thumb = $('img-thumb');
+    const preview = $('img-preview');
+    if (thumb) { thumb.src = evt.target.result; thumb.alt = file.name; }
+    if (preview) preview.hidden = false;
+  };
+  reader.readAsDataURL(file);
 }
 
 function autoResize(el) {
@@ -919,6 +961,9 @@ async function sendMessage() {
   inp.value = '';
   autoResize(inp);
 
+  const pendingImg = app.pendingImage;
+  clearPendingImage();
+
   const branch = app.editBranch;
   if (branch && branch.sourceId === app.activeConversationId && chatHistory[branch.index]?.role === 'user') {
     const base = cloneMessages(chatHistory.slice(0, branch.index));
@@ -934,9 +979,12 @@ async function sendMessage() {
     app.editBranch = null;
   }
 
-  chatHistory.push({ role: 'user', content });
+  const userContent = pendingImg
+    ? [{ type: 'image_url', image_url: { url: pendingImg.dataUrl } }, { type: 'text', text: content }]
+    : content;
+  chatHistory.push({ role: 'user', content: userContent });
   updateActiveConversation();
-  addMsg('user', { text: content, index: chatHistory.length - 1 });
+  addMsg('user', { text: content, raw: content, imageUrl: pendingImg?.dataUrl, index: chatHistory.length - 1 });
 
   const { bubble, thinkEl } = addMsg('assistant');
   bubble.classList.add('streaming');
@@ -1253,7 +1301,9 @@ function renderHistory() {
   $('msgs').innerHTML = '';
   chatHistory.forEach((m, index) => {
     if (m.role === 'user') {
-      const { wrap } = addMsg('user', { text: m.content, raw: m.content, index });
+      const imageUrl = Array.isArray(m.content) ? m.content.find(p => p.type === 'image_url')?.image_url?.url : null;
+      const text = Array.isArray(m.content) ? (m.content.find(p => p.type === 'text')?.text || '') : m.content;
+      const { wrap } = addMsg('user', { text, raw: text, imageUrl, index });
       appendBranchNav(wrap, index);
     } else if (m.role === 'system') {
       addMsg('system', { text: m.content });
@@ -1292,6 +1342,9 @@ async function init() {
   renderSidebar();
 
   $('btn-send').addEventListener('click', sendMessage);
+  $('btn-attach').addEventListener('click', () => $('img-attach').click());
+  $('img-attach').addEventListener('change', handleImageAttach);
+  $('btn-remove-img').addEventListener('click', clearPendingImage);
   $('btn-switch').addEventListener('click', handleSwitch);
   $('btn-thinking').addEventListener('click', toggleThinking);
   $('btn-theme').addEventListener('click', toggleTheme);
