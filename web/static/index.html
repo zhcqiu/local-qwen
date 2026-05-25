@@ -722,6 +722,7 @@
       font-family: 'Consolas', 'Cascadia Code', monospace;
     }
     pre {
+      position: relative;
       background: var(--code-bg);
       border: 1px solid var(--border);
       border-radius: var(--radius);
@@ -762,6 +763,137 @@
       color: #fff;
     }
     .branch-btn:hover:not(.active):not(:disabled) { background: var(--btn-hover-bg); }
+    /* ── Code copy button ───────────────────────────────────── */
+    .copy-code-btn {
+      position: absolute;
+      top: 5px;
+      right: 5px;
+      padding: 2px 7px;
+      font-size: 10px;
+      opacity: 0;
+      transition: opacity 0.15s;
+    }
+    pre:hover .copy-code-btn { opacity: 1; }
+
+    /* ── Image attach / preview ─────────────────────────────── */
+    #img-preview {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 6px 14px 0;
+      flex-shrink: 0;
+    }
+    #img-preview[hidden] { display: none; }
+    #img-thumb {
+      max-width: 200px;
+      max-height: 150px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      object-fit: cover;
+    }
+    #btn-remove-img { padding: 2px 6px; font-size: 11px; align-self: flex-start; }
+    #btn-attach { height: 42px; padding: 0 10px; font-size: 16px; line-height: 1; }
+    #btn-attach[hidden] { display: none; }
+    .msg-image {
+      display: block;
+      max-width: 280px;
+      max-height: 200px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      margin-bottom: 6px;
+      object-fit: cover;
+    }
+
+    /* ── Gear / Settings panel ──────────────────────────────── */
+    #sidebar-footer {
+      flex-shrink: 0;
+      border-top: 1px solid var(--border);
+      padding: 6px 8px;
+      position: relative;
+    }
+    #btn-gear {
+      width: 100%;
+      text-align: left;
+      padding: 5px 8px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    #gear-panel {
+      position: absolute;
+      bottom: calc(100% + 4px);
+      left: 0;
+      right: 0;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: 0 -4px 16px rgba(0,0,0,.22);
+      padding: 10px;
+      z-index: 200;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    #gear-panel[hidden] { display: none; }
+    .gear-label {
+      font-size: 10px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      margin-bottom: 2px;
+    }
+    #sys-prompt-inp {
+      width: 100%;
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 6px 8px;
+      font: inherit;
+      font-size: 12px;
+      resize: vertical;
+      min-height: 64px;
+    }
+    #sys-prompt-inp:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+    .gear-row { display: flex; flex-direction: column; gap: 4px; }
+    .gear-switch-row { display: flex; gap: 6px; }
+    .gear-switch-row select { flex: 1; min-width: 0; }
+
+    /* ── Context warning ────────────────────────────────────── */
+    #context-warn {
+      flex-shrink: 0;
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      padding: 5px 14px;
+      font-size: 12px;
+      gap: 8px;
+    }
+    #context-warn.visible { display: flex; }
+    #context-warn.warn {
+      background: color-mix(in srgb, var(--amber) 12%, var(--surface));
+      color: var(--amber);
+      border-top: 1px solid color-mix(in srgb, var(--amber) 35%, transparent);
+    }
+    #context-warn.critical {
+      background: var(--notice-err-bg);
+      color: var(--red);
+      border-top: 1px solid var(--notice-err-border);
+    }
+    #context-warn-btns { display: flex; gap: 6px; align-items: center; }
+    #context-warn-btns button { font-size: 11px; padding: 2px 8px; }
+
+    /* ── Token estimation ───────────────────────────────────── */
+    #tok-est {
+      font-size: 11px;
+      color: var(--muted);
+      white-space: nowrap;
+      align-self: flex-end;
+      padding-bottom: 11px;
+      min-width: 56px;
+      text-align: right;
+    }
+    #tok-est.warn { color: var(--amber); }
+    #tok-est.critical { color: var(--red); }
   </style>
 </head>
 <body>
@@ -802,6 +934,8 @@
           <div id="side-menu" hidden>
             <button id="btn-import" data-i18n="btn_import">Import</button>
             <button id="btn-export" data-i18n="btn_export">Export</button>
+            <button id="btn-export-md" data-i18n="btn_export_md">Export as Markdown</button>
+            <button id="btn-export-all" data-i18n="btn_export_all">Export all (JSON)</button>
             <input id="file-import" type="file" accept=".json" style="display:none">
           </div>
           <div class="compress-wrap" style="display:none">
@@ -829,15 +963,49 @@
         <input id="conv-search" type="search" data-i18n-placeholder="search_chats" placeholder="Search">
       </div>
       <div id="conv-list"></div>
+      <div id="sidebar-footer">
+        <div id="gear-panel" hidden>
+          <div class="gear-row">
+            <div class="gear-label" data-i18n="sys_prompt_label">System Prompt</div>
+            <textarea id="sys-prompt-inp" rows="3"></textarea>
+          </div>
+          <div class="gear-row">
+            <div class="gear-label" data-i18n="status_model">Model</div>
+            <select id="gear-sel-model"></select>
+          </div>
+          <div class="gear-row">
+            <div class="gear-label" data-i18n="status_profile">Profile</div>
+            <div class="gear-switch-row">
+              <select id="gear-sel-profile"></select>
+              <button id="btn-gear-switch" class="btn-accent" type="button" data-i18n="btn_switch">Switch</button>
+            </div>
+          </div>
+        </div>
+        <button id="btn-gear" type="button">⚙ <span data-i18n="btn_settings">Settings</span></button>
+      </div>
     </aside>
     <section id="chat-pane">
       <main id="msgs"></main>
+      <div id="context-warn">
+        <span id="context-warn-txt"></span>
+        <div id="context-warn-btns">
+          <button id="btn-ctx-compress" type="button"></button>
+          <button id="btn-ctx-dismiss" type="button">✕</button>
+        </div>
+      </div>
       <div id="edit-banner">
         <span id="edit-banner-text"></span>
         <button id="btn-cancel-edit" data-i18n="btn_cancel">Cancel</button>
       </div>
+      <div id="img-preview" hidden>
+        <img id="img-thumb" src="" alt="">
+        <button id="btn-remove-img" type="button">✕</button>
+      </div>
       <footer id="ftr">
+        <input id="img-attach" type="file" accept="image/*" style="display:none">
+        <button id="btn-attach" type="button" hidden>📎</button>
         <textarea id="inp" rows="1"></textarea>
+        <span id="tok-est"></span>
         <button id="btn-send" class="btn-accent" data-i18n="btn_send">Send</button>
       </footer>
       <details id="runtime">
@@ -863,6 +1031,7 @@
       <div id="details-body"></div>
     </aside>
   </div>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="/static/i18n.js"></script>
   <script src="/static/app.js"></script>
 </body>
