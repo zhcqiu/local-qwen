@@ -22,6 +22,7 @@ const app = {
   gearOpen: false,
   contextWarnLevel: '',
   contextWarnDismissed: false,
+  historyCharCount: 0,
   detailsOpen: localStorage.getItem('qwen-details-open') !== 'false',
 };
 
@@ -160,10 +161,29 @@ function createConversation(messages = [], title = null, parentId = null, forkIn
 function updateActiveConversation() {
   const conv = getActiveConversation();
   conv.messages = chatHistory;
+  updateHistoryCharCount();
   conv.title = titleFromMessages(chatHistory);
   conv.model = app.serverState?.current?.alias || conv.model || null;
   conv.updated_at = Date.now();
   saveConversations();
+}
+
+function updateHistoryCharCount() {
+  app.historyCharCount = chatHistory.reduce((sum, m) => {
+    const text = Array.isArray(m.content)
+      ? (m.content.find(p => p.type === 'text')?.text || '')
+      : (m.content || '');
+    return sum + text.length;
+  }, 0);
+  updateTokenEst();
+}
+
+function updateTokenEst() {
+  const el = $('tok-est');
+  if (!el) return;
+  const total = Math.ceil((app.historyCharCount + ($('inp')?.value.length || 0)) / 4);
+  el.textContent = total < 1000 ? `~${total} tok` : `~${(total / 1000).toFixed(1)}k tok`;
+  el.className = total > 20000 ? 'critical' : total > 16000 ? 'warn' : '';
 }
 
 function saveConversations() {
@@ -245,6 +265,7 @@ function loadConversations() {
   });
 
   chatHistory = getActiveConversation().messages;
+  updateHistoryCharCount();
   saveConversations();
 }
 
@@ -254,6 +275,7 @@ function setActiveConversation(id) {
   if (!conv) return;
   app.activeConversationId = id;
   chatHistory = conv.messages;
+  updateHistoryCharCount();
   app.editBranch = null;
   $('inp').value = '';
   autoResize($('inp'));
@@ -1261,6 +1283,7 @@ function trimHistory() {
   }
   const removed = Math.floor((chatHistory.length - keepN) / 2);
   chatHistory = chatHistory.slice(-keepN);
+  updateHistoryCharCount();
   updateActiveConversation();
   renderHistory();
   showNotice(t('cp_trim_done').replace('{n}', removed), 'ok');
@@ -1470,6 +1493,7 @@ function clearConversation(id = app.activeConversationId) {
   conv.updated_at = Date.now();
   if (app.activeConversationId === id) {
     chatHistory = conv.messages;
+    updateHistoryCharCount();
     $('msgs').innerHTML = '';
   }
   saveConversations();
@@ -1483,6 +1507,7 @@ async function init() {
   applyI18n();
   loadConversations();
   renderHistory();
+  updateTokenEst();
   renderSidebar();
 
   $('btn-send').addEventListener('click', sendMessage);
@@ -1534,7 +1559,7 @@ async function init() {
   inp.addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
   });
-  inp.addEventListener('input', () => autoResize(inp));
+  inp.addEventListener('input', () => { autoResize(inp); updateTokenEst(); });
   $('conv-search').addEventListener('input', e => {
     app.convSearch = e.target.value;
     renderSidebar();
